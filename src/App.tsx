@@ -100,7 +100,7 @@ function Sidebar({ active, onNavigate, onSignOut }: {
 
 function PageContent({ page, onNavigate }: { page: Page; onNavigate: (page: Page) => void }): React.JSX.Element {
   switch (page) {
-    case 'dashboard':    return <Dashboard />
+    case 'dashboard':    return <Dashboard onNavigate={onNavigate} />
     case 'negotiations': return <Negotiations onOpenNegotiation={(id) => console.log('open', id)} onNavigateToLocalUnions={() => onNavigate('local-unions')} />
     case 'grievances':   return <Grievances />
     case 'local-unions': return <LocalUnions />
