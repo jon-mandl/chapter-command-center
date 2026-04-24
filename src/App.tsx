@@ -3,6 +3,7 @@ import type { Session } from '@supabase/supabase-js'
 import { supabase } from './lib/supabase'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
+import Negotiations from './pages/Negotiations'
 
 type Page = 'dashboard' | 'negotiations' | 'grievances' | 'local-unions' | 'members' | 'documents' | 'settings'
 
@@ -94,10 +95,10 @@ function Sidebar({ active, onNavigate, onSignOut }: {
   )
 }
 
-function PageContent({ page }: { page: Page }): React.JSX.Element {
+function PageContent({ page, onNavigate }: { page: Page; onNavigate: (page: Page) => void }): React.JSX.Element {
   switch (page) {
     case 'dashboard':    return <Dashboard />
-    case 'negotiations': return <PlaceholderPage title="Negotiation Tracker" />
+    case 'negotiations': return <Negotiations onOpenNegotiation={(id) => console.log('open', id)} onNavigateToLocalUnions={() => onNavigate('local-unions')} />
     case 'grievances':   return <PlaceholderPage title="Grievances" />
     case 'local-unions': return <PlaceholderPage title="Local Unions" />
     case 'members':      return <PlaceholderPage title="Member Hub" />
@@ -153,7 +154,7 @@ export default function App(): React.JSX.Element {
         onSignOut={() => supabase.auth.signOut()}
       />
       <main style={{ flex: 1, background: '#F8FAFC', overflowY: 'auto' }}>
-        <PageContent page={page} />
+        <PageContent page={page} onNavigate={setPage} />
       </main>
     </div>
   )
