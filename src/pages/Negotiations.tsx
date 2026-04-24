@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useOrg } from '../lib/useOrg'
+import { inputStyle, btnPrimary, btnSecondary, card, labelStyle, errorBox } from '../lib/ui'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -19,60 +20,6 @@ interface Negotiation {
   contract_expiration_date: string | null
   status: string
   created_at: string
-}
-
-// ─── Shared styles ────────────────────────────────────────────────────────────
-
-const inputStyle: React.CSSProperties = {
-  width: '100%',
-  padding: '8px 10px',
-  fontSize: '13px',
-  border: '1px solid #CBD5E1',
-  borderRadius: '6px',
-  outline: 'none',
-  color: '#0F172A',
-  background: '#fff',
-  boxSizing: 'border-box'
-}
-
-const btnPrimary: React.CSSProperties = {
-  padding: '8px 16px',
-  fontSize: '13px',
-  fontWeight: 600,
-  background: '#1E3A8A',
-  color: '#fff',
-  border: 'none',
-  borderRadius: '6px',
-  cursor: 'pointer'
-}
-
-const btnSecondary: React.CSSProperties = {
-  padding: '8px 16px',
-  fontSize: '13px',
-  fontWeight: 500,
-  background: '#fff',
-  color: '#0F172A',
-  border: '1px solid #CBD5E1',
-  borderRadius: '6px',
-  cursor: 'pointer'
-}
-
-const card: React.CSSProperties = {
-  background: '#fff',
-  border: '1px solid #E2E8F0',
-  borderRadius: '8px',
-  padding: '16px 20px',
-  marginBottom: '12px'
-}
-
-const errorBox: React.CSSProperties = {
-  fontSize: '13px',
-  color: '#dc2626',
-  background: '#fef2f2',
-  border: '1px solid #fecaca',
-  borderRadius: '6px',
-  padding: '10px 14px',
-  marginBottom: '12px'
 }
 
 // ─── New Negotiation Form ─────────────────────────────────────────────────────
@@ -131,10 +78,6 @@ function NewNegotiationForm({ orgId, onSaved, onCancel, onNavigateToLocalUnions 
       onSaved(data as Negotiation)
     }
     setSaving(false)
-  }
-
-  const labelStyle: React.CSSProperties = {
-    display: 'block', fontSize: '12px', fontWeight: 600, color: '#64748B', marginBottom: '4px'
   }
 
   const noUnions = !loadingUnions && localUnions.length === 0
