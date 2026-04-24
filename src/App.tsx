@@ -5,6 +5,8 @@ import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
 import Negotiations from './pages/Negotiations'
 import Grievances from './pages/Grievances'
+import LocalUnions from './pages/LocalUnions'
+import Members from './pages/Members'
 
 type Page = 'dashboard' | 'negotiations' | 'grievances' | 'local-unions' | 'members' | 'documents' | 'settings'
 
@@ -101,8 +103,8 @@ function PageContent({ page, onNavigate }: { page: Page; onNavigate: (page: Page
     case 'dashboard':    return <Dashboard />
     case 'negotiations': return <Negotiations onOpenNegotiation={(id) => console.log('open', id)} onNavigateToLocalUnions={() => onNavigate('local-unions')} />
     case 'grievances':   return <Grievances />
-    case 'local-unions': return <PlaceholderPage title="Local Unions" />
-    case 'members':      return <PlaceholderPage title="Member Hub" />
+    case 'local-unions': return <LocalUnions />
+    case 'members':      return <Members />
     case 'documents':    return <PlaceholderPage title="Documents Vault" />
     case 'settings':     return <PlaceholderPage title="Settings" />
   }
