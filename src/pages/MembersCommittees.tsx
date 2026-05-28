@@ -220,7 +220,7 @@ export default function MembersCommittees(): React.JSX.Element {
       <div style={{ flex: 1, padding: '28px 32px', overflowY: 'auto', minWidth: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '20px' }}>
           <div>
-            <h1 style={{ fontSize: '22px', fontWeight: 700, color: '#0F172A', margin: 0 }}>Committees</h1>
+            <h1 style={{ fontSize: '26px', fontWeight: 700, color: '#0F172A', margin: 0 }}>Committees</h1>
             <p style={{ fontSize: '13px', color: '#64748B', margin: '4px 0 0' }}>{committees.length} {committees.length === 1 ? 'committee' : 'committees'}</p>
           </div>
           <button style={btnPrimary} onClick={() => { setShowAdd(true); setAddForm({ name: '', description: '' }) }}>Add Committee</button>

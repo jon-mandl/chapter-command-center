@@ -166,7 +166,7 @@ export default function Dashboard({ onNavigate }: { onNavigate: (page: 'negotiat
 
       {/* Header */}
       <div style={{ marginBottom: '28px' }}>
-        <h1 style={{ fontSize: '22px', fontWeight: 700, color: '#0F172A', margin: 0 }}>Command Center</h1>
+        <h1 style={{ fontSize: '26px', fontWeight: 700, color: '#0F172A', margin: 0 }}>Command Center</h1>
         <p style={{ fontSize: '13px', color: '#64748B', margin: '6px 0 0' }}>Overview of your active negotiations and association activity</p>
       </div>
 

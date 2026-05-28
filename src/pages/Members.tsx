@@ -2,13 +2,15 @@ import { useState } from 'react'
 import MembersDirectory from './MembersDirectory'
 import MembersCommittees from './MembersCommittees'
 import MembersHours from './MembersHours'
+import MembersServiceCharge from './MembersServiceCharge'
 
-type SubPage = 'directory' | 'committees' | 'hours'
+type SubPage = 'directory' | 'committees' | 'hours' | 'service_charge'
 
 const TABS: { id: SubPage; label: string }[] = [
-  { id: 'directory',   label: 'Employer Directory' },
-  { id: 'committees',  label: 'Committees' },
-  { id: 'hours',       label: 'Member Hours' },
+  { id: 'directory',      label: 'Employer Directory' },
+  { id: 'committees',     label: 'Committees' },
+  { id: 'hours',          label: 'Member Hours' },
+  { id: 'service_charge', label: 'Service Charge' },
 ]
 
 export default function Members(): React.JSX.Element {
@@ -45,9 +47,10 @@ export default function Members(): React.JSX.Element {
 
       {/* Sub-page content */}
       <div style={{ flex: 1, overflowY: 'auto' }}>
-        {tab === 'directory'  && <MembersDirectory />}
-        {tab === 'committees' && <MembersCommittees />}
-        {tab === 'hours'      && <MembersHours />}
+        {tab === 'directory'      && <MembersDirectory />}
+        {tab === 'committees'     && <MembersCommittees />}
+        {tab === 'hours'          && <MembersHours />}
+        {tab === 'service_charge' && <MembersServiceCharge />}
       </div>
     </div>
   )

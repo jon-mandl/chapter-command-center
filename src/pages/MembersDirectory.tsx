@@ -315,7 +315,7 @@ export default function MembersDirectory(): React.JSX.Element {
       <div style={{ flex: 1, padding: '28px 32px', overflowY: 'auto', minWidth: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '20px' }}>
           <div>
-            <h1 style={{ fontSize: '22px', fontWeight: 700, color: '#0F172A', margin: 0 }}>Employer Directory</h1>
+            <h1 style={{ fontSize: '26px', fontWeight: 700, color: '#0F172A', margin: 0 }}>Employer Directory</h1>
             <p style={{ fontSize: '13px', color: '#64748B', margin: '4px 0 0' }}>
               {companies.length} {companies.length === 1 ? 'employer' : 'employers'}
             </p>

@@ -1,5 +1,20 @@
 // Shared style tokens — import from here, never redefine locally
 
+// ─── Brand Colors ─────────────────────────────────────────────────────────────
+export const COLORS = {
+  navy:        '#1E3A8A',   // NECA primary navy
+  navyDark:    '#162d6b',   // hover / pressed navy
+  gold:        '#B8952A',   // NECA official gold
+  goldLight:   '#f5edd6',   // gold tint for backgrounds
+  goldBorder:  '#d4b96a',   // gold border
+  textPrimary: '#0F172A',
+  textSecondary: '#64748B',
+  border:      '#E2E8F0',
+  borderInput: '#CBD5E1',
+  surface:     '#F8FAFC',
+  white:       '#fff',
+}
+
 export const inputStyle: React.CSSProperties = {
   width: '100%',
   padding: '8px 10px',
@@ -17,6 +32,19 @@ export const btnPrimary: React.CSSProperties = {
   fontSize: '13px',
   fontWeight: 600,
   background: '#1E3A8A',
+  color: '#fff',
+  border: 'none',
+  borderRadius: '6px',
+  cursor: 'pointer'
+}
+
+// Gold accent button — use for the primary action on a page when you want
+// it to stand out (e.g. Calculate, Export). Keep to one per page.
+export const btnGold: React.CSSProperties = {
+  padding: '8px 16px',
+  fontSize: '13px',
+  fontWeight: 600,
+  background: '#B8952A',
   color: '#fff',
   border: 'none',
   borderRadius: '6px',
@@ -72,7 +100,7 @@ export const errorBox: React.CSSProperties = {
 }
 
 export const thStyle: React.CSSProperties = {
-  padding: '10px 14px',
+  padding: '11px 16px',
   fontSize: '11px',
   fontWeight: 700,
   textTransform: 'uppercase' as const,
@@ -84,10 +112,25 @@ export const thStyle: React.CSSProperties = {
 }
 
 export const tdStyle: React.CSSProperties = {
-  padding: '10px 14px',
+  padding: '12px 16px',
   fontSize: '13px',
   color: '#0F172A',
   borderBottom: '1px solid #F1F5F9'
+}
+
+// Page header style — use for every page's top-level <h1>
+export const pageTitle: React.CSSProperties = {
+  fontSize: '26px',
+  fontWeight: 700,
+  color: '#0F172A',
+  margin: '0 0 4px'
+}
+
+// Subtitle below a page title
+export const pageSubtitle: React.CSSProperties = {
+  fontSize: '14px',
+  color: '#64748B',
+  margin: '0 0 28px'
 }
 
 export function formatDate(iso: string | null | undefined): string {

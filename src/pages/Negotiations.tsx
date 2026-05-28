@@ -279,7 +279,7 @@ export default function Negotiations({ onOpenNegotiation, onNavigateToLocalUnion
     <div style={{ padding: '28px 32px', maxWidth: '960px', margin: '0 auto' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '24px' }}>
         <div>
-          <h1 style={{ fontSize: '22px', fontWeight: 700, color: '#0F172A', margin: 0 }}>Negotiations</h1>
+          <h1 style={{ fontSize: '26px', fontWeight: 700, color: '#0F172A', margin: 0 }}>Negotiations</h1>
           <p style={{ fontSize: '13px', color: '#64748B', margin: '4px 0 0' }}>
             {negotiations.length === 0 ? 'No negotiations yet' : `${active.length} active · ${closed.length} closed`}
           </p>
