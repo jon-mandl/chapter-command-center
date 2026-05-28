@@ -1,350 +1,256 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
-import { useOrg } from '../lib/useOrg'
-import { inputStyle, btnPrimary, btnSecondary, card, labelStyle, errorBox } from '../lib/ui'
+import { useChapter } from '../lib/useChapter'
+import { useToast } from '../lib/toast'
+import { describeError } from '../lib/errors'
+import ConfirmDialog from '../lib/ConfirmDialog'
+import { inputStyle, btnPrimary, btnSecondary, btnDanger, card, labelStyle, errorBox, formatDate, thStyle, tdStyle } from '../lib/ui'
+import type { NegotiationCycle, LocalUnion, ID, NegotiationStatus } from '../lib/types'
 
-// ─── Types ────────────────────────────────────────────────────────────────────
-
-interface LocalUnion {
-  id: number
-  local_number: string
-  charter_city: string | null
-}
-
-interface Negotiation {
-  id: number
-  name: string
-  bargaining_unit: string
-  local_number: string | null
-  local_union_id: number | null
-  contract_expiration_date: string | null
-  status: string
-  created_at: string
-}
-
-// ─── New Negotiation Form ─────────────────────────────────────────────────────
-
-function NewNegotiationForm({ orgId, onSaved, onCancel, onNavigateToLocalUnions }: {
-  orgId: string
-  onSaved: (n: Negotiation) => void
-  onCancel: () => void
+interface NegotiationsProps {
+  onOpenNegotiation: (id: ID) => void
   onNavigateToLocalUnions: () => void
-}): React.JSX.Element {
-  const [name, setName] = useState('')
-  const [localUnions, setLocalUnions] = useState<LocalUnion[]>([])
-  const [localUnionId, setLocalUnionId] = useState<number | ''>('')
-  const [expirationDate, setExpirationDate] = useState('')
-  const [loadingUnions, setLoadingUnions] = useState(true)
+}
+
+const STATUS_COLORS: Record<NegotiationStatus, { bg: string; color: string; border: string }> = {
+  Active:   { bg: '#f0fdf4', color: '#059669', border: '#bbf7d0' },
+  Settled:  { bg: '#EEF2FF', color: '#4F46E5', border: '#C7D2FE' },
+  Archived: { bg: '#F8FAFC', color: '#64748B', border: '#E2E8F0' }
+}
+
+export default function Negotiations({ onOpenNegotiation, onNavigateToLocalUnions }: NegotiationsProps): React.JSX.Element {
+  const { chapterId, loading: chapterLoading } = useChapter()
+  const toast = useToast()
+  const [cycles, setCycles] = useState<NegotiationCycle[]>([])
+  const [unions, setUnions] = useState<LocalUnion[]>([])
+  const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState('')
+
+  const [showForm, setShowForm] = useState(false)
+  const [form, setForm] = useState({ name: '', local_union_id: '', classification: 'Journeyman', cba_expiration_date: '' })
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState('')
 
+  const [confirmDelete, setConfirmDelete] = useState<NegotiationCycle | null>(null)
+  const [deleting, setDeleting] = useState(false)
+
   useEffect(() => {
-    supabase
-      .from('local_unions')
-      .select('id, local_number, charter_city')
-      .eq('org_id', orgId)
-      .order('local_number')
-      .then(({ data, error }) => {
-        if (!error && data) setLocalUnions(data)
-        setLoadingUnions(false)
-      })
-  }, [orgId])
+    if (!chapterId) return
+    let cancelled = false
 
-  async function handleSubmit(e: React.FormEvent): Promise<void> {
-    e.preventDefault()
-    if (!name.trim() || !localUnionId) return
-    setSaving(true)
+    void Promise.all([
+      supabase.from('negotiation_cycles').select('*').eq('chapter_id', chapterId).order('created_at', { ascending: false }),
+      supabase.from('local_unions').select('*').eq('chapter_id', chapterId).order('local_number')
+    ]).then(([cyclesRes, unionsRes]) => {
+      if (cancelled) return
+      if (cyclesRes.error) {
+        setLoadError(describeError(cyclesRes.error, 'Could not load negotiations.'))
+      } else {
+        setCycles((cyclesRes.data ?? []) as NegotiationCycle[])
+      }
+      if (unionsRes.error) {
+        toast.error('Could not load local unions: ' + describeError(unionsRes.error))
+      } else {
+        setUnions((unionsRes.data ?? []) as LocalUnion[])
+      }
+      setLoading(false)
+    })
+
+    return () => { cancelled = true }
+  }, [chapterId, toast])
+
+  async function handleCreate(): Promise<void> {
+    if (!chapterId) return
     setSaveError('')
+    const name = form.name.trim()
+    if (!name) { setSaveError('Negotiation name is required.'); return }
+    if (!form.local_union_id) { setSaveError('Select a local union.'); return }
 
-    const selectedUnion = localUnions.find((l) => l.id === localUnionId)
-
+    setSaving(true)
     const { data, error } = await supabase
-      .from('negotiations')
+      .from('negotiation_cycles')
       .insert({
-        org_id: orgId,
-        name: name.trim(),
-        bargaining_unit: '',
-        local_union_id: localUnionId,
-        local_number: selectedUnion?.local_number ?? null,
-        contract_expiration_date: expirationDate || null,
-        status: 'Scheduling'
+        chapter_id: chapterId,
+        local_union_id: form.local_union_id,
+        name,
+        classification: form.classification.trim() || 'Journeyman',
+        cba_expiration_date: form.cba_expiration_date || null,
+        status: 'Active'
       })
       .select()
       .single()
-
-    if (error) {
-      setSaveError('Could not create negotiation. Please try again.')
-    } else {
-      onSaved(data as Negotiation)
-    }
     setSaving(false)
+
+    if (error || !data) {
+      const msg = describeError(error, 'Could not create the negotiation.')
+      setSaveError(msg)
+      toast.error(msg)
+      return
+    }
+    setCycles((prev) => [data as NegotiationCycle, ...prev])
+    setShowForm(false)
+    setForm({ name: '', local_union_id: '', classification: 'Journeyman', cba_expiration_date: '' })
+    toast.success('Negotiation created.')
   }
-
-  const noUnions = !loadingUnions && localUnions.length === 0
-  const canSubmit = name.trim() && localUnionId && !saving && !noUnions
-
-  return (
-    <div style={{ ...card, borderColor: '#1E3A8A', borderWidth: '1.5px', marginBottom: '20px' }}>
-      <div style={{ fontSize: '15px', fontWeight: 700, color: '#0F172A', marginBottom: '18px' }}>New Negotiation</div>
-      <form onSubmit={handleSubmit}>
-        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '12px', marginBottom: '14px' }}>
-          <div>
-            <label style={labelStyle}>Negotiation Name <span style={{ color: '#ef4444' }}>*</span></label>
-            <input
-              type="text"
-              required
-              autoFocus
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="e.g. Inside Wiremen 2026"
-              style={inputStyle}
-            />
-          </div>
-          <div>
-            <label style={labelStyle}>Local Union <span style={{ color: '#ef4444' }}>*</span></label>
-            {noUnions ? (
-              <div style={{ fontSize: '13px', color: '#92400e', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '5px', padding: '8px 12px' }}>
-                No local unions found.{' '}
-                <button
-                  type="button"
-                  onClick={onNavigateToLocalUnions}
-                  style={{ color: '#1E3A8A', fontWeight: 600, background: 'none', border: 'none', cursor: 'pointer', padding: 0, fontSize: '13px', textDecoration: 'underline' }}
-                >
-                  Go to Local Unions
-                </button>
-                {' '}to create one first.
-              </div>
-            ) : (
-              <select
-                required
-                value={localUnionId}
-                onChange={(e) => setLocalUnionId(e.target.value ? Number(e.target.value) : '')}
-                style={inputStyle}
-                disabled={loadingUnions}
-              >
-                <option value="">{loadingUnions ? 'Loading…' : '— Select Local Union —'}</option>
-                {localUnions.map((l) => (
-                  <option key={l.id} value={l.id}>
-                    Local {l.local_number}{l.charter_city ? ` — ${l.charter_city}` : ''}
-                  </option>
-                ))}
-              </select>
-            )}
-          </div>
-        </div>
-        <div style={{ marginBottom: '18px' }}>
-          <label style={labelStyle}>Contract Expiration Date</label>
-          <input
-            type="date"
-            value={expirationDate}
-            onChange={(e) => setExpirationDate(e.target.value)}
-            style={{ ...inputStyle, maxWidth: '200px' }}
-          />
-        </div>
-        {saveError && <div style={errorBox}>{saveError}</div>}
-        <div style={{ display: 'flex', gap: '8px' }}>
-          <button type="submit" disabled={!canSubmit} style={{ ...btnPrimary, opacity: !canSubmit ? 0.5 : 1 }}>
-            {saving ? 'Creating…' : 'Create Negotiation'}
-          </button>
-          <button type="button" onClick={onCancel} style={btnSecondary}>Cancel</button>
-        </div>
-      </form>
-    </div>
-  )
-}
-
-// ─── Negotiation Card ─────────────────────────────────────────────────────────
-
-function NegotiationCard({ negotiation, onOpen, onDelete }: {
-  negotiation: Negotiation
-  onOpen: (id: number) => void
-  onDelete: (id: number) => void
-}): React.JSX.Element {
-  const [confirming, setConfirming] = useState(false)
-  const [deleteError, setDeleteError] = useState('')
-  const [deleting, setDeleting] = useState(false)
 
   async function handleDelete(): Promise<void> {
+    if (!confirmDelete) return
     setDeleting(true)
-    setDeleteError('')
-    const { error } = await supabase.from('negotiations').delete().eq('id', negotiation.id)
-    if (error) {
-      setDeleteError('Could not delete. Please try again.')
-      setConfirming(false)
-    } else {
-      onDelete(negotiation.id)
-    }
+    const { error } = await supabase.from('negotiation_cycles').delete().eq('id', confirmDelete.id)
     setDeleting(false)
+    if (error) {
+      toast.error('Could not delete: ' + describeError(error))
+      return
+    }
+    setCycles((prev) => prev.filter((c) => c.id !== confirmDelete.id))
+    setConfirmDelete(null)
+    toast.success('Negotiation deleted.')
   }
 
-  const isOpen = negotiation.status !== 'Closed'
+  function unionLabel(localUnionId: ID): string {
+    const u = unions.find((x) => x.id === localUnionId)
+    if (!u) return '—'
+    const loc = `Local ${u.local_number}`
+    return u.city ? `${loc} — ${u.city}` : loc
+  }
 
-  const expDate = negotiation.contract_expiration_date
-    ? new Date(negotiation.contract_expiration_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-    : null
-
-  return (
-    <div style={{ ...card, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '16px' }}>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '6px', flexWrap: 'wrap' }}>
-          <span style={{ fontSize: '16px', fontWeight: 700, color: '#0F172A' }}>{negotiation.name}</span>
-          <span style={{
-            fontSize: '11px', fontWeight: 600, padding: '2px 9px', borderRadius: '20px',
-            background: isOpen ? '#f0fdf4' : '#F8FAFC',
-            color: isOpen ? '#059669' : '#64748B',
-            border: `1px solid ${isOpen ? '#bbf7d0' : '#E2E8F0'}`
-          }}>
-            {negotiation.status}
-          </span>
-        </div>
-        <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', fontSize: '13px', color: '#64748B' }}>
-          {negotiation.local_number && <span>Local {negotiation.local_number}</span>}
-          {expDate && <span>Expires {expDate}</span>}
-        </div>
-      </div>
-
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '6px', flexShrink: 0 }}>
-        {deleteError && (
-          <div style={{ fontSize: '12px', color: '#dc2626', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '4px', padding: '4px 8px' }}>
-            {deleteError}
-          </div>
-        )}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <button onClick={() => onOpen(negotiation.id)} style={{ ...btnPrimary, padding: '6px 14px', fontSize: '13px' }}>
-            Open
-          </button>
-          {confirming ? (
-            <>
-              <span style={{ fontSize: '12px', color: '#64748B' }}>Delete?</span>
-              <button
-                onClick={handleDelete}
-                disabled={deleting}
-                style={{ ...btnSecondary, fontSize: '12px', padding: '4px 10px', color: '#dc2626', borderColor: '#fca5a5' }}
-              >
-                Yes
-              </button>
-              <button onClick={() => setConfirming(false)} style={{ ...btnSecondary, fontSize: '12px', padding: '4px 10px' }}>No</button>
-            </>
-          ) : (
-            <button
-              onClick={() => setConfirming(true)}
-              style={{ background: 'none', border: 'none', color: '#94A3B8', cursor: 'pointer', fontSize: '13px', padding: '4px 8px' }}
-            >
-              Delete
-            </button>
-          )}
-        </div>
-      </div>
-    </div>
-  )
-}
-
-// ─── Negotiations Page ────────────────────────────────────────────────────────
-
-export default function Negotiations({ onOpenNegotiation, onNavigateToLocalUnions }: {
-  onOpenNegotiation: (id: number) => void
-  onNavigateToLocalUnions: () => void
-}): React.JSX.Element {
-  const { orgId, loading: orgLoading } = useOrg()
-  const [negotiations, setNegotiations] = useState<Negotiation[]>([])
-  const [loading, setLoading] = useState(true)
-  const [loadError, setLoadError] = useState('')
-  const [showForm, setShowForm] = useState(false)
-
-  useEffect(() => {
-    if (!orgId) return
-    supabase
-      .from('negotiations')
-      .select('*')
-      .eq('org_id', orgId)
-      .order('created_at', { ascending: false })
-      .then(({ data, error }) => {
-        if (error) {
-          setLoadError('Could not load negotiations. Please try again.')
-        } else {
-          setNegotiations((data as Negotiation[]) ?? [])
-        }
-        setLoading(false)
-      })
-  }, [orgId])
-
-  if (orgLoading) {
+  if (chapterLoading || loading) {
     return <div style={{ padding: '32px', fontSize: '13px', color: '#64748B' }}>Loading…</div>
   }
-
-  const active = negotiations.filter((n) => n.status !== 'Closed')
-  const closed = negotiations.filter((n) => n.status === 'Closed')
 
   return (
     <div style={{ padding: '28px 32px', maxWidth: '960px', margin: '0 auto' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '24px' }}>
         <div>
           <h1 style={{ fontSize: '26px', fontWeight: 700, color: '#0F172A', margin: 0 }}>Negotiations</h1>
-          <p style={{ fontSize: '13px', color: '#64748B', margin: '4px 0 0' }}>
-            {negotiations.length === 0 ? 'No negotiations yet' : `${active.length} active · ${closed.length} closed`}
-          </p>
+          <p style={{ fontSize: '13px', color: '#64748B', margin: '6px 0 0' }}>Manage bargaining cycles with each local union.</p>
         </div>
-        {!showForm && (
-          <button onClick={() => setShowForm(true)} style={btnPrimary}>+ New Negotiation</button>
-        )}
+        {!showForm && <button style={btnPrimary} onClick={() => setShowForm(true)}>+ New Negotiation</button>}
       </div>
-
-      {showForm && orgId && (
-        <NewNegotiationForm
-          orgId={orgId}
-          onSaved={(n) => { setNegotiations((prev) => [n, ...prev]); setShowForm(false) }}
-          onCancel={() => setShowForm(false)}
-          onNavigateToLocalUnions={onNavigateToLocalUnions}
-        />
-      )}
 
       {loadError && <div style={errorBox}>{loadError}</div>}
 
-      {loading ? (
-        <p style={{ color: '#64748B', fontSize: '14px' }}>Loading…</p>
-      ) : negotiations.length === 0 && !showForm ? (
-        <div style={{ textAlign: 'center', padding: '80px 24px' }}>
-          <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="#d1d5db" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ margin: '0 auto 16px', display: 'block' }}>
-            <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/>
-            <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
+      {showForm && (
+        <div style={{ ...card, borderColor: '#1E3A8A', borderWidth: '1.5px', marginBottom: '24px' }}>
+          <div style={{ fontSize: '14px', fontWeight: 700, color: '#0F172A', marginBottom: '16px' }}>New Negotiation</div>
+          {unions.length === 0 ? (
+            <div style={{ fontSize: '13px', color: '#64748B', padding: '12px', background: '#F8FAFC', borderRadius: '6px' }}>
+              You need at least one local union first.{' '}
+              <button onClick={onNavigateToLocalUnions} style={{ background: 'none', border: 'none', color: '#1E3A8A', cursor: 'pointer', padding: 0, fontSize: '13px', fontWeight: 600 }}>
+                Add a local union →
+              </button>
+            </div>
+          ) : (
+            <>
+              <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '12px', marginBottom: '12px' }}>
+                <div>
+                  <label style={labelStyle}>Name <span style={{ color: '#ef4444' }}>*</span></label>
+                  <input style={inputStyle} value={form.name} autoFocus onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g. 2026 IBEW Local 11 Inside Wireman CBA" />
+                </div>
+                <div>
+                  <label style={labelStyle}>Local Union <span style={{ color: '#ef4444' }}>*</span></label>
+                  <select style={inputStyle} value={form.local_union_id} onChange={(e) => setForm({ ...form, local_union_id: e.target.value })}>
+                    <option value="">— Select —</option>
+                    {unions.map((u) => (
+                      <option key={u.id} value={u.id}>Local {u.local_number}{u.city ? ` — ${u.city}` : ''}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
+                <div>
+                  <label style={labelStyle}>Classification</label>
+                  <input style={inputStyle} value={form.classification} onChange={(e) => setForm({ ...form, classification: e.target.value })} placeholder="Journeyman" />
+                </div>
+                <div>
+                  <label style={labelStyle}>CBA Expiration</label>
+                  <input type="date" style={inputStyle} value={form.cba_expiration_date} onChange={(e) => setForm({ ...form, cba_expiration_date: e.target.value })} />
+                </div>
+              </div>
+              {saveError && <div style={errorBox}>{saveError}</div>}
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button style={{ ...btnPrimary, opacity: saving ? 0.5 : 1 }} disabled={saving} onClick={handleCreate}>
+                  {saving ? 'Creating…' : 'Create'}
+                </button>
+                <button style={btnSecondary} onClick={() => { setShowForm(false); setSaveError('') }}>Cancel</button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {cycles.length === 0 && !showForm ? (
+        <div style={{ textAlign: 'center', padding: '60px 24px' }}>
+          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#CBD5E1" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ margin: '0 auto 16px', display: 'block' }} aria-hidden="true">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+            <polyline points="14 2 14 8 20 8"/>
           </svg>
           <div style={{ fontSize: '15px', fontWeight: 600, color: '#0F172A', marginBottom: '6px' }}>No negotiations yet</div>
-          <div style={{ fontSize: '13px', color: '#64748B', marginBottom: '20px' }}>
-            Create your first negotiation to start tracking sessions, open items, and tentative agreements.
-          </div>
-          <button onClick={() => setShowForm(true)} style={btnPrimary}>New Negotiation</button>
+          <div style={{ fontSize: '13px', color: '#64748B', marginBottom: '20px' }}>Create your first bargaining cycle to start logging sessions and tracking proposals.</div>
+          <button style={btnPrimary} onClick={() => setShowForm(true)}>Create First Negotiation</button>
         </div>
-      ) : (
-        <>
-          {active.length > 0 && (
-            <div style={{ marginBottom: '28px' }}>
-              {active.map((n) => (
-                <NegotiationCard
-                  key={n.id}
-                  negotiation={n}
-                  onOpen={onOpenNegotiation}
-                  onDelete={(id) => setNegotiations((prev) => prev.filter((x) => x.id !== id))}
-                />
-              ))}
-            </div>
-          )}
-          {closed.length > 0 && (
-            <div>
-              <div style={{ fontSize: '11px', fontWeight: 600, color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '10px' }}>
-                Closed Negotiations
-              </div>
-              {closed.map((n) => (
-                <NegotiationCard
-                  key={n.id}
-                  negotiation={n}
-                  onOpen={onOpenNegotiation}
-                  onDelete={(id) => setNegotiations((prev) => prev.filter((x) => x.id !== id))}
-                />
-              ))}
-            </div>
-          )}
-        </>
+      ) : cycles.length > 0 && (
+        <div style={{ background: '#fff', border: '1px solid #E2E8F0', borderRadius: '10px', overflow: 'hidden' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead>
+              <tr>
+                <th style={thStyle} scope="col">Name</th>
+                <th style={thStyle} scope="col">Local Union</th>
+                <th style={thStyle} scope="col">Classification</th>
+                <th style={thStyle} scope="col">CBA Expires</th>
+                <th style={thStyle} scope="col">Status</th>
+                <th style={{ ...thStyle, width: '80px' }} scope="col"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {cycles.map((c) => {
+                const sc = STATUS_COLORS[c.status]
+                return (
+                  <tr key={c.id}>
+                    <td style={tdStyle}>
+                      <button
+                        onClick={() => onOpenNegotiation(c.id)}
+                        style={{ background: 'none', border: 'none', padding: 0, color: '#1E3A8A', fontWeight: 600, fontSize: '13px', cursor: 'pointer', textAlign: 'left' }}
+                      >
+                        {c.name}
+                      </button>
+                    </td>
+                    <td style={tdStyle}>{unionLabel(c.local_union_id)}</td>
+                    <td style={tdStyle}>{c.classification}</td>
+                    <td style={tdStyle}>{formatDate(c.cba_expiration_date)}</td>
+                    <td style={tdStyle}>
+                      <span style={{ fontSize: '11px', fontWeight: 600, padding: '2px 8px', borderRadius: '20px', background: sc.bg, color: sc.color, border: `1px solid ${sc.border}` }}>
+                        {c.status}
+                      </span>
+                    </td>
+                    <td style={{ ...tdStyle, textAlign: 'right' }}>
+                      <button
+                        aria-label={`Delete ${c.name}`}
+                        title={`Delete ${c.name}`}
+                        onClick={() => setConfirmDelete(c)}
+                        style={{ ...btnDanger, fontSize: '12px', padding: '4px 10px' }}
+                      >
+                        Delete
+                      </button>
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
       )}
+
+      <ConfirmDialog
+        open={confirmDelete !== null}
+        title="Delete negotiation?"
+        message={confirmDelete ? `This will permanently delete "${confirmDelete.name}" and all its sessions, proposals, and positions. This cannot be undone.` : ''}
+        confirmLabel="Delete"
+        destructive
+        busy={deleting}
+        onConfirm={handleDelete}
+        onCancel={() => setConfirmDelete(null)}
+      />
     </div>
   )
 }

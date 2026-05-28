@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import { supabase } from './lib/supabase'
+import type { ID } from './lib/types'
 import Login from './pages/Login'
 import SetNewPassword from './pages/SetNewPassword'
 import Dashboard from './pages/Dashboard'
@@ -110,8 +111,8 @@ function Sidebar({ active, onNavigate, onSignOut }: {
 function PageContent({ page, onNavigate, selectedNegotiationId, setSelectedNegotiationId }: {
   page: Page
   onNavigate: (page: Page) => void
-  selectedNegotiationId: number | null
-  setSelectedNegotiationId: (id: number | null) => void
+  selectedNegotiationId: ID | null
+  setSelectedNegotiationId: (id: ID | null) => void
 }): React.JSX.Element {
   switch (page) {
     case 'dashboard':    return <Dashboard onNavigate={onNavigate} />
@@ -143,7 +144,7 @@ export default function App(): React.JSX.Element {
   const [session, setSession] = useState<Session | null>(null)
   const [loading, setLoading] = useState(true)
   const [page, setPage] = useState<Page>('dashboard')
-  const [selectedNegotiationId, setSelectedNegotiationId] = useState<number | null>(null)
+  const [selectedNegotiationId, setSelectedNegotiationId] = useState<ID | null>(null)
   const [isRecovery, setIsRecovery] = useState(false)
 
   function handleNavigate(p: Page) {
