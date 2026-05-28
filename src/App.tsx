@@ -2,11 +2,15 @@ import { useEffect, useState } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import { supabase } from './lib/supabase'
 import Login from './pages/Login'
+import SetNewPassword from './pages/SetNewPassword'
 import Dashboard from './pages/Dashboard'
 import Negotiations from './pages/Negotiations'
+import NegotiationDetail from './pages/NegotiationDetail'
 import Grievances from './pages/Grievances'
 import LocalUnions from './pages/LocalUnions'
 import Members from './pages/Members'
+import Documents from './pages/Documents'
+import Settings from './pages/Settings'
 
 type Page = 'dashboard' | 'negotiations' | 'grievances' | 'local-unions' | 'members' | 'documents' | 'settings'
 
@@ -30,7 +34,7 @@ function Sidebar({ active, onNavigate, onSignOut }: {
 
   return (
     <div style={{
-      width: '220px',
+      width: '232px',
       minHeight: '100vh',
       background: '#1E3A8A',
       display: 'flex',
@@ -38,14 +42,17 @@ function Sidebar({ active, onNavigate, onSignOut }: {
       flexShrink: 0
     }}>
       {/* Logo / App name */}
-      <div style={{ padding: '24px 20px 20px', borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
-        <div style={{ fontSize: '14px', fontWeight: 700, color: '#fff', lineHeight: '1.3' }}>
+      <div style={{ padding: '28px 20px 22px', borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
+        <div style={{ fontSize: '11px', fontWeight: 600, color: '#B8952A', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: '4px' }}>
           Chapter Command Center
+        </div>
+        <div style={{ fontSize: '13px', fontWeight: 400, color: 'rgba(255,255,255,0.55)', lineHeight: '1.3' }}>
+          Association Management
         </div>
       </div>
 
       {/* Nav items */}
-      <nav style={{ flex: 1, padding: '12px 0' }}>
+      <nav style={{ flex: 1, padding: '16px 0' }}>
         {NAV_ITEMS.map((item) => {
           const isActive = active === item.id
           const isHovered = hoveredItem === item.id
@@ -62,11 +69,13 @@ function Sidebar({ active, onNavigate, onSignOut }: {
                 padding: '10px 20px',
                 fontSize: '13px',
                 fontWeight: isActive ? 600 : 400,
-                color: isActive ? '#fff' : 'rgba(255,255,255,0.75)',
-                background: isActive ? 'rgba(255,255,255,0.15)' : isHovered ? 'rgba(255,255,255,0.08)' : 'transparent',
+                color: isActive ? '#fff' : isHovered ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.65)',
+                background: isActive ? 'rgba(184,149,42,0.15)' : isHovered ? 'rgba(255,255,255,0.06)' : 'transparent',
                 border: 'none',
+                borderLeft: isActive ? '3px solid #B8952A' : '3px solid transparent',
                 cursor: 'pointer',
-                transition: 'background 0.15s'
+                transition: 'background 0.15s, color 0.15s',
+                boxSizing: 'border-box'
               }}
             >
               {item.label}
@@ -76,14 +85,14 @@ function Sidebar({ active, onNavigate, onSignOut }: {
       </nav>
 
       {/* Sign out */}
-      <div style={{ padding: '16px 20px', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+      <div style={{ padding: '20px', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
         <button
           onClick={onSignOut}
           onMouseEnter={() => setHoveredSignOut(true)}
           onMouseLeave={() => setHoveredSignOut(false)}
           style={{
             fontSize: '12px',
-            color: hoveredSignOut ? '#fff' : 'rgba(255,255,255,0.5)',
+            color: hoveredSignOut ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.4)',
             background: 'none',
             border: 'none',
             cursor: 'pointer',
@@ -98,31 +107,49 @@ function Sidebar({ active, onNavigate, onSignOut }: {
   )
 }
 
-function PageContent({ page, onNavigate }: { page: Page; onNavigate: (page: Page) => void }): React.JSX.Element {
+function PageContent({ page, onNavigate, selectedNegotiationId, setSelectedNegotiationId }: {
+  page: Page
+  onNavigate: (page: Page) => void
+  selectedNegotiationId: number | null
+  setSelectedNegotiationId: (id: number | null) => void
+}): React.JSX.Element {
   switch (page) {
     case 'dashboard':    return <Dashboard onNavigate={onNavigate} />
-    case 'negotiations': return <Negotiations onOpenNegotiation={(id) => console.log('open', id)} onNavigateToLocalUnions={() => onNavigate('local-unions')} />
+    case 'negotiations':
+      if (selectedNegotiationId !== null) {
+        return (
+          <NegotiationDetail
+            negotiationId={selectedNegotiationId}
+            onBack={() => setSelectedNegotiationId(null)}
+          />
+        )
+      }
+      return (
+        <Negotiations
+          onOpenNegotiation={(id) => setSelectedNegotiationId(id)}
+          onNavigateToLocalUnions={() => onNavigate('local-unions')}
+        />
+      )
     case 'grievances':   return <Grievances />
     case 'local-unions': return <LocalUnions />
     case 'members':      return <Members />
-    case 'documents':    return <PlaceholderPage title="Documents Vault" />
-    case 'settings':     return <PlaceholderPage title="Settings" />
+    case 'documents':    return <Documents />
+    case 'settings':     return <Settings />
   }
 }
 
-function PlaceholderPage({ title }: { title: string }): React.JSX.Element {
-  return (
-    <div style={{ padding: '32px' }}>
-      <h1 style={{ fontSize: '20px', fontWeight: 700, color: '#0F172A', marginBottom: '8px' }}>{title}</h1>
-      <p style={{ fontSize: '13px', color: '#64748B' }}>Coming soon.</p>
-    </div>
-  )
-}
 
 export default function App(): React.JSX.Element {
   const [session, setSession] = useState<Session | null>(null)
   const [loading, setLoading] = useState(true)
   const [page, setPage] = useState<Page>('dashboard')
+  const [selectedNegotiationId, setSelectedNegotiationId] = useState<number | null>(null)
+  const [isRecovery, setIsRecovery] = useState(false)
+
+  function handleNavigate(p: Page) {
+    if (p !== 'negotiations') setSelectedNegotiationId(null)
+    setPage(p)
+  }
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -130,7 +157,12 @@ export default function App(): React.JSX.Element {
       setLoading(false)
     })
 
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: listener } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'PASSWORD_RECOVERY') {
+        setIsRecovery(true)
+      } else {
+        setIsRecovery(false)
+      }
       setSession(session)
     })
 
@@ -149,15 +181,24 @@ export default function App(): React.JSX.Element {
     return <Login />
   }
 
+  if (isRecovery) {
+    return <SetNewPassword onDone={() => setIsRecovery(false)} />
+  }
+
   return (
     <div style={{ display: 'flex', minHeight: '100vh' }}>
       <Sidebar
         active={page}
-        onNavigate={setPage}
+        onNavigate={handleNavigate}
         onSignOut={() => supabase.auth.signOut()}
       />
       <main style={{ flex: 1, background: '#F8FAFC', overflowY: 'auto' }}>
-        <PageContent page={page} onNavigate={setPage} />
+        <PageContent
+          page={page}
+          onNavigate={handleNavigate}
+          selectedNegotiationId={selectedNegotiationId}
+          setSelectedNegotiationId={setSelectedNegotiationId}
+        />
       </main>
     </div>
   )
