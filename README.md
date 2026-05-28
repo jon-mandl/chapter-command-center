@@ -128,14 +128,14 @@ src/
     ├── Dashboard.tsx          # Command Center home page
     ├── Negotiations.tsx       # Negotiation list + create + delete
     ├── NegotiationDetail.tsx  # Per-cycle Overview / Session Log / Proposals
-    ├── Grievances.tsx         # Grievance lifecycle (stub — rebuild in progress)
-    ├── LocalUnions.tsx        # Local unions + wage packages (stub — rebuild in progress)
+    ├── Grievances.tsx         # Grievance lifecycle + attachments
+    ├── LocalUnions.tsx        # Local unions, wage packages, wage components
     ├── Members.tsx            # Member Hub tab router
-    ├── MembersDirectory.tsx   # Employer directory (stub — rebuild in progress)
-    ├── MembersCommittees.tsx  # Committees (stub — rebuild in progress)
-    ├── MembersHours.tsx       # Workforce hours (stub — rebuild in progress)
-    ├── MembersServiceCharge.tsx # Service charge calculator (stub — rebuild in progress)
-    ├── Documents.tsx          # Document vault (stub — rebuild in progress)
+    ├── MembersDirectory.tsx   # Employer directory
+    ├── MembersCommittees.tsx  # Joint committees and their members
+    ├── MembersHours.tsx       # Workforce hours by month
+    ├── MembersServiceCharge.tsx # Per-company hours summary
+    ├── Documents.tsx          # Document vault (Supabase Storage)
     └── Settings.tsx           # Chapter name + password change
 ```
 
@@ -151,13 +151,12 @@ src/
 
 ## Status & known gaps
 
-- Five of the seven page modules (Grievances, LocalUnions, Members*, Documents)
-  are currently stubbed while they're rewritten against the live schema; they
-  render a "being rebuilt" message and do not read or write data.
 - Settings exposes Chapter name + password change only. Per-chapter
   configuration (fund labels, branding, data export) is on the roadmap.
-- The `documents` Supabase Storage bucket and matching RLS policies are not
-  yet created — Documents will not function until they are.
+- File storage uses two private Supabase Storage buckets, `documents` and
+  `grievance-documents`. Both cap files at 50 MB and accept PDFs, Office
+  docs, common images, CSV, and plain text. Document and grievance
+  attachment uploads use short-lived signed URLs for download.
 - RLS policies are currently `allow authenticated full access` across all
   tables; tightening them to per-chapter isolation is on the roadmap before
   any production / multi-customer use.
@@ -167,7 +166,8 @@ src/
 
 ## Roadmap
 
-Tier 1 (in flight): rebuild stubbed pages, real RLS, schema migrations in git.
+Tier 1 (in flight): tighten RLS policies to per-chapter isolation, commit
+schema migrations to git.
 Tier 2: CSV/Excel export, document storage bucket, audit log surfacing,
 search, sort/filter/pagination on tables.
 Tier 3: multi-user invites, role-based access, branding/white-label, email

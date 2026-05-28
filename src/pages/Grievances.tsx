@@ -4,8 +4,15 @@ import { useChapter } from '../lib/useChapter'
 import { useToast } from '../lib/toast'
 import { describeError } from '../lib/errors'
 import ConfirmDialog from '../lib/ConfirmDialog'
+import {
+  STORAGE_BUCKETS,
+  buildStoragePath,
+  createSignedDownloadUrl,
+  formatBytes,
+  validateUpload
+} from '../lib/storage'
 import { inputStyle, labelStyle, btnPrimary, btnSecondary, btnDanger, card, errorBox, formatDate } from '../lib/ui'
-import type { Grievance, GrievanceStage, MemberCompany, LocalUnion, ID } from '../lib/types'
+import type { Grievance, GrievanceDocument, GrievanceStage, MemberCompany, LocalUnion, ID } from '../lib/types'
 
 const STAGES: GrievanceStage[] = ['Filed', 'LMC', 'CIR', 'Arbitration', 'Closed', 'Withdrawn']
 
@@ -639,6 +646,218 @@ function GrievanceDetail({ grievance, companyName, unionLabel, onEdit, onDelete,
           </>
         )}
       </div>
+
+      <GrievanceAttachments grievanceId={grievance.id} locked={locked} />
+    </div>
+  )
+}
+
+// ── Grievance Attachments ────────────────────────────────────────────────────
+
+function GrievanceAttachments({ grievanceId, locked }: { grievanceId: ID; locked: boolean }): React.JSX.Element {
+  const toast = useToast()
+  const [docs, setDocs] = useState<GrievanceDocument[]>([])
+  const [docsLoadedFor, setDocsLoadedFor] = useState<ID | null>(null)
+
+  const [showUpload, setShowUpload] = useState(false)
+  const [file, setFile] = useState<File | null>(null)
+  const [displayName, setDisplayName] = useState('')
+  const [uploading, setUploading] = useState(false)
+  const [uploadError, setUploadError] = useState('')
+
+  const [confirmDelete, setConfirmDelete] = useState<GrievanceDocument | null>(null)
+  const [deleting, setDeleting] = useState(false)
+
+  useEffect(() => {
+    if (!grievanceId) return
+    const target = grievanceId
+    let cancelled = false
+    void supabase
+      .from('grievance_documents')
+      .select('*')
+      .eq('grievance_id', target)
+      .order('uploaded_at', { ascending: false })
+      .then(({ data, error: err }) => {
+        if (cancelled) return
+        if (err) {
+          toast.error('Could not load attachments: ' + describeError(err))
+          setDocs([])
+        } else {
+          setDocs((data ?? []) as GrievanceDocument[])
+        }
+        setDocsLoadedFor(target)
+      })
+    return () => { cancelled = true }
+  }, [grievanceId, toast])
+
+  const loading = docsLoadedFor !== grievanceId
+
+  function pickFile(f: File | null): void {
+    setUploadError('')
+    setFile(f)
+    if (f && !displayName.trim()) setDisplayName(f.name)
+  }
+
+  async function handleUpload(): Promise<void> {
+    if (!file) return
+    setUploadError('')
+    const name = displayName.trim() || file.name
+    if (!name) { setUploadError('Display name is required.'); return }
+
+    const v = validateUpload(file, 'grievanceDocuments')
+    if (v) { setUploadError(v.message); return }
+
+    setUploading(true)
+    const path = buildStoragePath(grievanceId, file.name)
+    const { error: uploadErr } = await supabase.storage
+      .from(STORAGE_BUCKETS.grievanceDocuments.name)
+      .upload(path, file, { contentType: file.type || undefined, upsert: false })
+    if (uploadErr) {
+      setUploading(false)
+      const msg = describeError(uploadErr, 'Upload failed.')
+      setUploadError(msg)
+      toast.error(msg)
+      return
+    }
+
+    const { data, error: dbErr } = await supabase
+      .from('grievance_documents')
+      .insert({
+        grievance_id: grievanceId,
+        file_name: name,
+        file_path: path,
+        file_size: file.size,
+        mime_type: file.type || null
+      })
+      .select()
+      .single()
+    if (dbErr || !data) {
+      await supabase.storage.from(STORAGE_BUCKETS.grievanceDocuments.name).remove([path])
+      setUploading(false)
+      const msg = describeError(dbErr, 'Saved the file, but could not record it. Try again.')
+      setUploadError(msg)
+      toast.error(msg)
+      return
+    }
+
+    setUploading(false)
+    setDocs((prev) => [data as GrievanceDocument, ...prev])
+    setFile(null)
+    setDisplayName('')
+    setShowUpload(false)
+    toast.success('Attachment uploaded.')
+  }
+
+  async function handleDownload(doc: GrievanceDocument): Promise<void> {
+    const { url, error } = await createSignedDownloadUrl('grievanceDocuments', doc.file_path)
+    if (error || !url) {
+      toast.error('Could not generate download link: ' + (error ?? 'unknown error'))
+      return
+    }
+    window.open(url, '_blank', 'noopener,noreferrer')
+  }
+
+  async function handleDelete(): Promise<void> {
+    if (!confirmDelete) return
+    setDeleting(true)
+    const { error: dbErr } = await supabase
+      .from('grievance_documents')
+      .delete()
+      .eq('id', confirmDelete.id)
+    if (dbErr) {
+      setDeleting(false)
+      toast.error('Could not delete: ' + describeError(dbErr))
+      return
+    }
+    const { error: storageErr } = await supabase.storage
+      .from(STORAGE_BUCKETS.grievanceDocuments.name)
+      .remove([confirmDelete.file_path])
+    setDeleting(false)
+    if (storageErr) {
+      toast.error('Attachment removed, but the file could not be deleted from storage. ' + describeError(storageErr))
+    } else {
+      toast.success('Attachment deleted.')
+    }
+    setDocs((prev) => prev.filter((d) => d.id !== confirmDelete.id))
+    setConfirmDelete(null)
+  }
+
+  return (
+    <div style={{ ...card, marginTop: '16px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px', gap: '12px' }}>
+        <div>
+          <span style={{ fontSize: '14px', fontWeight: 700, color: '#0F172A' }}>Attachments</span>
+          {!loading && (
+            <span style={{ fontSize: '12px', color: '#64748B', marginLeft: '8px' }}>({docs.length})</span>
+          )}
+        </div>
+        {!locked && !showUpload && (
+          <button style={{ ...btnPrimary, fontSize: '12px', padding: '5px 12px' }} onClick={() => setShowUpload(true)}>+ Upload</button>
+        )}
+      </div>
+
+      {showUpload && (
+        <div style={{ background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: '8px', padding: '14px', marginBottom: '14px' }}>
+          <div style={{ fontSize: '13px', fontWeight: 600, color: '#0F172A', marginBottom: '12px' }}>Upload Attachment</div>
+          <div style={{ marginBottom: '10px' }}>
+            <label style={labelStyle}>File <span style={{ color: '#ef4444' }}>*</span></label>
+            <input type="file" onChange={(e) => pickFile(e.target.files?.[0] ?? null)} style={{ fontSize: '13px' }} aria-label="Choose grievance attachment to upload" />
+            {file && (
+              <div style={{ fontSize: '12px', color: '#64748B', marginTop: '6px' }}>
+                {file.name} · {formatBytes(file.size)}{file.type ? ` · ${file.type}` : ''}
+              </div>
+            )}
+          </div>
+          <div style={{ marginBottom: '10px' }}>
+            <label style={labelStyle}>Display Name</label>
+            <input style={inputStyle} value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="Defaults to the file name" />
+          </div>
+          {uploadError && <div style={errorBox}>{uploadError}</div>}
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <button style={{ ...btnPrimary, fontSize: '12px', padding: '5px 12px', opacity: !file || uploading ? 0.5 : 1 }} disabled={!file || uploading} onClick={handleUpload}>
+              {uploading ? 'Uploading…' : 'Upload'}
+            </button>
+            <button style={{ ...btnSecondary, fontSize: '12px', padding: '5px 12px' }} disabled={uploading} onClick={() => { setShowUpload(false); setFile(null); setDisplayName(''); setUploadError('') }}>Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {loading ? (
+        <div style={{ fontSize: '13px', color: '#64748B', padding: '8px 0' }}>Loading attachments…</div>
+      ) : docs.length === 0 ? (
+        <div style={{ fontSize: '13px', color: '#94A3B8', padding: '8px 0' }}>No attachments yet.</div>
+      ) : docs.map((d) => (
+        <div key={d.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 0', borderTop: '1px solid #F1F5F9' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#64748B" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ flexShrink: 0 }}>
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+              <polyline points="14 2 14 8 20 8"/>
+            </svg>
+            <div style={{ minWidth: 0 }}>
+              <button onClick={() => handleDownload(d)} style={{ background: 'none', border: 'none', padding: 0, color: '#1E3A8A', fontWeight: 600, fontSize: '13px', cursor: 'pointer', textAlign: 'left' }}>
+                {d.file_name}
+              </button>
+              <div style={{ fontSize: '11px', color: '#94A3B8', marginTop: '2px' }}>
+                {formatBytes(d.file_size)} · uploaded {formatDate(d.uploaded_at.slice(0, 10))}
+              </div>
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
+            <button style={{ ...btnSecondary, fontSize: '12px', padding: '4px 10px' }} onClick={() => handleDownload(d)}>Download</button>
+            {!locked && <button style={{ ...btnDanger, fontSize: '12px', padding: '4px 10px' }} onClick={() => setConfirmDelete(d)}>Delete</button>}
+          </div>
+        </div>
+      ))}
+
+      <ConfirmDialog
+        open={confirmDelete !== null}
+        title="Delete attachment?"
+        message={confirmDelete ? `Delete "${confirmDelete.file_name}"? This removes both the file and the record. This cannot be undone.` : ''}
+        confirmLabel="Delete"
+        busy={deleting}
+        onConfirm={handleDelete}
+        onCancel={() => setConfirmDelete(null)}
+      />
     </div>
   )
 }
