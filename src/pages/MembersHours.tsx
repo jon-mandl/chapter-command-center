@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
-import { useChapter } from '../lib/useChapter'
+import { useUserSettings } from '../lib/useUserSettings'
 import { useToast } from '../lib/toast'
 import { describeError } from '../lib/errors'
 import ConfirmDialog from '../lib/ConfirmDialog'
@@ -44,7 +44,7 @@ const EMPTY_FORM: FormState = {
 }
 
 export default function MembersHours(): React.JSX.Element {
-  const { chapterId, loading: chapterLoading } = useChapter()
+  const { effectiveChapterId, applyChapterFilter, loading: chapterLoading } = useUserSettings()
   const toast = useToast()
   const [rows, setRows] = useState<WorkforceHours[]>([])
   const [companies, setCompanies] = useState<MemberCompany[]>([])
@@ -65,13 +65,12 @@ export default function MembersHours(): React.JSX.Element {
   const [deleting, setDeleting] = useState(false)
 
   useEffect(() => {
-    if (!chapterId) return
     let cancelled = false
     void Promise.all([
-      supabase.from('workforce_hours').select('*').eq('chapter_id', chapterId).order('report_month', { ascending: false }),
-      supabase.from('member_companies').select('*').eq('chapter_id', chapterId).order('company_name'),
-      supabase.from('local_unions').select('*').eq('chapter_id', chapterId).order('local_number')
-    ]).then(([rowsRes, compRes, unionsRes]) => {
+      applyChapterFilter(supabase.from('workforce_hours').select('*').order('report_month', { ascending: false })),
+      applyChapterFilter(supabase.from('member_companies').select('*').order('company_name')),
+      applyChapterFilter(supabase.from('local_unions').select('*').order('local_number'))
+    ]).then(([rowsRes, compRes, unionsRes]: [{ data: unknown; error: unknown }, { data: unknown; error: unknown }, { data: unknown; error: unknown }]) => {
       if (cancelled) return
       if (rowsRes.error) {
         setLoadError(describeError(rowsRes.error, 'Could not load hours.'))
@@ -85,7 +84,8 @@ export default function MembersHours(): React.JSX.Element {
       setLoading(false)
     })
     return () => { cancelled = true }
-  }, [chapterId, toast])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [effectiveChapterId])
 
   function companyName(id: ID | null): string {
     if (!id) return '—'
@@ -150,21 +150,23 @@ export default function MembersHours(): React.JSX.Element {
   }
 
   async function handleSave(): Promise<void> {
-    if (!chapterId) return
     setSaveError('')
+    if (!editing && !effectiveChapterId) {
+      setSaveError('Select a specific chapter from the sidebar before adding hours.')
+      return
+    }
     const hours = Number(form.total_hours)
     if (!form.total_hours.trim() || Number.isNaN(hours)) { setSaveError('Total hours must be a number.'); return }
     if (hours < 0) { setSaveError('Total hours cannot be negative.'); return }
 
     setSaving(true)
     const payload = {
-      chapter_id: chapterId,
+      chapter_id: effectiveChapterId,
       report_month: firstOfMonthIso(form.year, form.month),
       total_hours: hours,
       company_id: form.company_id || null,
       local_union_id: form.local_union_id || null,
-      classification: form.classification.trim() || null,
-      employer_name: form.company_id ? null : null // intentionally unused; FK is the source of truth
+      classification: form.classification.trim() || null
     }
 
     if (editing) {
@@ -172,7 +174,6 @@ export default function MembersHours(): React.JSX.Element {
         .from('workforce_hours')
         .update(payload)
         .eq('id', editing.id)
-        .eq('chapter_id', chapterId)
         .select()
         .single()
       setSaving(false)
@@ -207,13 +208,12 @@ export default function MembersHours(): React.JSX.Element {
   }
 
   async function handleDelete(): Promise<void> {
-    if (!confirmDelete || !chapterId) return
+    if (!confirmDelete) return
     setDeleting(true)
     const { error: err } = await supabase
       .from('workforce_hours')
       .delete()
       .eq('id', confirmDelete.id)
-      .eq('chapter_id', chapterId)
     setDeleting(false)
     if (err) {
       toast.error('Could not delete: ' + describeError(err))

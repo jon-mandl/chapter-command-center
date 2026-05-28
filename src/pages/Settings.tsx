@@ -1,14 +1,15 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
-import { useChapter } from '../lib/useChapter'
+import { useUserSettings } from '../lib/useUserSettings'
 import { useToast } from '../lib/toast'
 import { describeError } from '../lib/errors'
 import { inputStyle, labelStyle, btnPrimary, btnSecondary, errorBox } from '../lib/ui'
 
-type SettingsTab = 'general' | 'security'
+type SettingsTab = 'general' | 'profile' | 'security'
 
 const TABS: { id: SettingsTab; label: string }[] = [
-  { id: 'general',  label: 'General' },
+  { id: 'general',  label: 'Chapter' },
+  { id: 'profile',  label: 'Profile' },
   { id: 'security', label: 'Security' }
 ]
 
@@ -95,6 +96,71 @@ function GeneralTab({ chapterId }: { chapterId: string }): React.JSX.Element {
         </button>
         {isDirty && !saving && (
           <button onClick={() => setDraft(chapterName)} style={btnSecondary}>Cancel</button>
+        )}
+      </div>
+    </Section>
+  )
+}
+
+function ProfileTab(): React.JSX.Element {
+  const { settings, refresh } = useUserSettings()
+  const toast = useToast()
+  const [draft, setDraft] = useState(settings?.display_name ?? '')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  if (!settings) return <div style={{ fontSize: '13px', color: '#64748B' }}>Loading…</div>
+
+  const current = settings.display_name ?? ''
+  const isDirty = draft.trim() !== current.trim()
+
+  async function handleSave(): Promise<void> {
+    if (!settings) return
+    setError('')
+    setSaving(true)
+    const trimmed = draft.trim() || null
+    const { error: err } = await supabase
+      .from('user_settings')
+      .update({ display_name: trimmed })
+      .eq('user_id', settings.user_id)
+    setSaving(false)
+    if (err) {
+      const msg = describeError(err, 'Could not save.')
+      setError(msg)
+      toast.error(msg)
+      return
+    }
+    refresh()
+    toast.success('Profile updated.')
+  }
+
+  return (
+    <Section title="Your Profile">
+      <div style={{ marginBottom: '16px' }}>
+        <label style={labelStyle}>Display Name</label>
+        <input
+          style={inputStyle}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          placeholder="How your name appears to administrators"
+          maxLength={120}
+        />
+        <div style={{ fontSize: '11px', color: '#94A3B8', marginTop: '6px' }}>
+          Email addresses aren't visible inside the app, so administrators identify you by this
+          display name. Pick something easy to recognise.
+        </div>
+      </div>
+      {error && <div style={errorBox}>{error}</div>}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+        <button
+          onClick={handleSave}
+          disabled={!isDirty || saving}
+          style={{ ...btnPrimary, opacity: !isDirty || saving ? 0.5 : 1 }}
+        >
+          {saving ? 'Saving…' : 'Save'}
+        </button>
+        {isDirty && !saving && (
+          <button onClick={() => setDraft(current)} style={btnSecondary}>Cancel</button>
         )}
       </div>
     </Section>
@@ -188,7 +254,10 @@ function SecurityTab(): React.JSX.Element {
 }
 
 export default function Settings(): React.JSX.Element {
-  const { chapterId, loading: chapterLoading } = useChapter()
+  // Chapter edit on this page edits the *effective* chapter — i.e. whatever the
+  // admin chapter switcher has selected, or the user's own chapter for
+  // non-admins. Admins on "All Chapters" don't see the chapter tab.
+  const { effectiveChapterId, isAdmin, loading: chapterLoading } = useUserSettings()
   const [activeTab, setActiveTab] = useState<SettingsTab>('general')
 
   if (chapterLoading) {
@@ -223,7 +292,20 @@ export default function Settings(): React.JSX.Element {
         ))}
       </div>
 
-      {chapterId && activeTab === 'general' && <GeneralTab chapterId={chapterId} />}
+      {activeTab === 'general' && (
+        effectiveChapterId ? (
+          <GeneralTab chapterId={effectiveChapterId} />
+        ) : (
+          <Section title="Chapter">
+            <div style={{ fontSize: '13px', color: '#64748B', lineHeight: 1.6 }}>
+              {isAdmin
+                ? 'Select a specific chapter from the sidebar to edit its name here.'
+                : 'You are not yet assigned to a chapter.'}
+            </div>
+          </Section>
+        )
+      )}
+      {activeTab === 'profile'  && <ProfileTab />}
       {activeTab === 'security' && <SecurityTab />}
     </div>
   )

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
-import { useChapter } from '../lib/useChapter'
+import { useUserSettings } from '../lib/useUserSettings'
 import { useToast } from '../lib/toast'
 import { describeError } from '../lib/errors'
 import ConfirmDialog from '../lib/ConfirmDialog'
@@ -46,7 +46,7 @@ export default function NegotiationDetail({ negotiationId, onBack }: {
   negotiationId: ID
   onBack: () => void
 }): React.JSX.Element {
-  const { chapterId } = useChapter()
+  const { effectiveChapterId, applyChapterFilter } = useUserSettings()
   const toast = useToast()
   const [cycle, setCycle] = useState<NegotiationCycle | null>(null)
   const [unions, setUnions] = useState<LocalUnion[]>([])
@@ -55,13 +55,14 @@ export default function NegotiationDetail({ negotiationId, onBack }: {
   const [activeTab, setActiveTab] = useState<Tab>('overview')
 
   useEffect(() => {
-    if (!chapterId) return
     let cancelled = false
 
     void Promise.all([
-      supabase.from('negotiation_cycles').select('*').eq('id', negotiationId).eq('chapter_id', chapterId).single(),
-      supabase.from('local_unions').select('*').eq('chapter_id', chapterId).order('local_number')
-    ]).then(([cycleRes, unionsRes]) => {
+      // The cycle is identified by its own UUID; RLS scopes it to the right
+      // chapter automatically. Admins see across chapters.
+      supabase.from('negotiation_cycles').select('*').eq('id', negotiationId).single(),
+      applyChapterFilter(supabase.from('local_unions').select('*').order('local_number'))
+    ]).then(([cycleRes, unionsRes]: [{ data: unknown; error: unknown }, { data: unknown; error: unknown }]) => {
       if (cancelled) return
       if (cycleRes.error) {
         setLoadError(describeError(cycleRes.error, 'Could not load negotiation.'))
@@ -73,7 +74,8 @@ export default function NegotiationDetail({ negotiationId, onBack }: {
     })
 
     return () => { cancelled = true }
-  }, [negotiationId, chapterId])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [negotiationId, effectiveChapterId])
 
   if (loading) return <div style={{ padding: '32px', fontSize: '13px', color: '#64748B' }}>Loading…</div>
   if (loadError || !cycle) return <div style={{ padding: '32px' }}><div style={errorBox}>{loadError || 'Negotiation not found.'}</div></div>

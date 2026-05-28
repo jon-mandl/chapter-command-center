@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
-import { useChapter } from '../lib/useChapter'
+import { useUserSettings } from '../lib/useUserSettings'
 import { useToast } from '../lib/toast'
 import { describeError } from '../lib/errors'
 import ConfirmDialog from '../lib/ConfirmDialog'
@@ -14,7 +14,7 @@ const EMPTY_COMMITTEE: CommitteeForm = { name: '', description: '' }
 const EMPTY_MEMBER: MemberForm = { member_name: '', company: '', role: '', term_start: '', term_end: '' }
 
 export default function MembersCommittees(): React.JSX.Element {
-  const { chapterId, loading: chapterLoading } = useChapter()
+  const { effectiveChapterId, applyChapterFilter, loading: chapterLoading } = useUserSettings()
   const toast = useToast()
   const [committees, setCommittees] = useState<Committee[]>([])
   const [loading, setLoading] = useState(true)
@@ -45,26 +45,23 @@ export default function MembersCommittees(): React.JSX.Element {
   const [confirmRemoveMember, setConfirmRemoveMember] = useState<CommitteeMember | null>(null)
   const [removingMember, setRemovingMember] = useState(false)
 
-  // Load committees on mount
+  // Load committees on mount and when the effective chapter changes.
   useEffect(() => {
-    if (!chapterId) return
     let cancelled = false
-    void supabase
-      .from('committees')
-      .select('*')
-      .eq('chapter_id', chapterId)
-      .order('name')
-      .then(({ data, error: err }) => {
-        if (cancelled) return
-        if (err) {
-          setLoadError(describeError(err, 'Could not load committees.'))
-        } else {
-          setCommittees((data ?? []) as Committee[])
-        }
-        setLoading(false)
-      })
+    void applyChapterFilter(
+      supabase.from('committees').select('*').order('name')
+    ).then(({ data, error: err }: { data: unknown; error: unknown }) => {
+      if (cancelled) return
+      if (err) {
+        setLoadError(describeError(err, 'Could not load committees.'))
+      } else {
+        setCommittees((data ?? []) as Committee[])
+      }
+      setLoading(false)
+    })
     return () => { cancelled = true }
-  }, [chapterId])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [effectiveChapterId])
 
   // Load members when selection changes
   useEffect(() => {
@@ -113,8 +110,11 @@ export default function MembersCommittees(): React.JSX.Element {
   }
 
   async function handleSaveCommittee(): Promise<void> {
-    if (!chapterId) return
     setCommitteeError('')
+    if (!editingCommittee && !effectiveChapterId) {
+      setCommitteeError('Select a specific chapter from the sidebar before creating a committee.')
+      return
+    }
     const name = committeeForm.name.trim()
     if (!name) { setCommitteeError('Name is required.'); return }
     setSavingCommittee(true)
@@ -125,7 +125,6 @@ export default function MembersCommittees(): React.JSX.Element {
         .from('committees')
         .update(payload)
         .eq('id', editingCommittee.id)
-        .eq('chapter_id', chapterId)
         .select()
         .single()
       setSavingCommittee(false)
@@ -144,7 +143,7 @@ export default function MembersCommittees(): React.JSX.Element {
 
     const { data, error: err } = await supabase
       .from('committees')
-      .insert({ ...payload, chapter_id: chapterId })
+      .insert({ ...payload, chapter_id: effectiveChapterId })
       .select()
       .single()
     setSavingCommittee(false)
@@ -162,13 +161,12 @@ export default function MembersCommittees(): React.JSX.Element {
   }
 
   async function handleDeleteCommittee(): Promise<void> {
-    if (!confirmDeleteCommittee || !chapterId) return
+    if (!confirmDeleteCommittee) return
     setDeletingCommittee(true)
     const { error: err } = await supabase
       .from('committees')
       .delete()
       .eq('id', confirmDeleteCommittee.id)
-      .eq('chapter_id', chapterId)
     setDeletingCommittee(false)
     if (err) {
       toast.error('Could not delete: ' + describeError(err))

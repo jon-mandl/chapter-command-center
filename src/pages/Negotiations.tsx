@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
-import { useChapter } from '../lib/useChapter'
+import { useUserSettings } from '../lib/useUserSettings'
 import { useToast } from '../lib/toast'
 import { describeError } from '../lib/errors'
 import ConfirmDialog from '../lib/ConfirmDialog'
@@ -19,7 +19,7 @@ const STATUS_COLORS: Record<NegotiationStatus, { bg: string; color: string; bord
 }
 
 export default function Negotiations({ onOpenNegotiation, onNavigateToLocalUnions }: NegotiationsProps): React.JSX.Element {
-  const { chapterId, loading: chapterLoading } = useChapter()
+  const { effectiveChapterId, applyChapterFilter, loading: chapterLoading } = useUserSettings()
   const toast = useToast()
   const [cycles, setCycles] = useState<NegotiationCycle[]>([])
   const [unions, setUnions] = useState<LocalUnion[]>([])
@@ -35,13 +35,12 @@ export default function Negotiations({ onOpenNegotiation, onNavigateToLocalUnion
   const [deleting, setDeleting] = useState(false)
 
   useEffect(() => {
-    if (!chapterId) return
     let cancelled = false
 
     void Promise.all([
-      supabase.from('negotiation_cycles').select('*').eq('chapter_id', chapterId).order('created_at', { ascending: false }),
-      supabase.from('local_unions').select('*').eq('chapter_id', chapterId).order('local_number')
-    ]).then(([cyclesRes, unionsRes]) => {
+      applyChapterFilter(supabase.from('negotiation_cycles').select('*').order('created_at', { ascending: false })),
+      applyChapterFilter(supabase.from('local_unions').select('*').order('local_number'))
+    ]).then(([cyclesRes, unionsRes]: [{ data: unknown; error: unknown }, { data: unknown; error: unknown }]) => {
       if (cancelled) return
       if (cyclesRes.error) {
         setLoadError(describeError(cyclesRes.error, 'Could not load negotiations.'))
@@ -57,11 +56,15 @@ export default function Negotiations({ onOpenNegotiation, onNavigateToLocalUnion
     })
 
     return () => { cancelled = true }
-  }, [chapterId, toast])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [effectiveChapterId])
 
   async function handleCreate(): Promise<void> {
-    if (!chapterId) return
     setSaveError('')
+    if (!effectiveChapterId) {
+      setSaveError('Select a specific chapter from the sidebar before creating a negotiation.')
+      return
+    }
     const name = form.name.trim()
     if (!name) { setSaveError('Negotiation name is required.'); return }
     if (!form.local_union_id) { setSaveError('Select a local union.'); return }
@@ -70,7 +73,7 @@ export default function Negotiations({ onOpenNegotiation, onNavigateToLocalUnion
     const { data, error } = await supabase
       .from('negotiation_cycles')
       .insert({
-        chapter_id: chapterId,
+        chapter_id: effectiveChapterId,
         local_union_id: form.local_union_id,
         name,
         classification: form.classification.trim() || 'Journeyman',

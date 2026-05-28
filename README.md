@@ -149,29 +149,44 @@ src/
   Use `toast.error(describeError(err))` rather than swallowing the error.
 - Destructive actions (delete, archive, lock) must route through `ConfirmDialog`.
 
+## Roles and multi-chapter isolation
+
+Every authenticated user has a `user_settings` row (created automatically by a
+database trigger on sign-up) with a `role` and a `chapter_id`. Three roles:
+
+- **admin** — sees all chapters and all rows. Database RLS bypasses
+  chapter-scoping via an `is_admin()` helper. Admins also see a "Viewing as"
+  chapter switcher in the sidebar to scope the UI to a single chapter at a
+  time (purely a client-side filter; it does not change their own
+  `user_settings.chapter_id`).
+- **manager** / **member** — scoped to their assigned chapter by RLS. The two
+  roles render the same UI today; future capability differences are planned.
+
+New non-admin users land on a "pending chapter assignment" screen until an
+admin assigns them a chapter in **User Management**. There is no self-service
+chapter picker by design — admins assign chapters.
+
+Email addresses live in `auth.users` and are not readable from the client.
+Users identify themselves to administrators via the `display_name` field on
+their `user_settings` row (editable under **Settings → Profile**).
+
 ## Status & known gaps
 
-- Settings exposes Chapter name + password change only. Per-chapter
-  configuration (fund labels, branding, data export) is on the roadmap.
 - File storage uses two private Supabase Storage buckets, `documents` and
   `grievance-documents`. Both cap files at 50 MB and accept PDFs, Office
   docs, common images, CSV, and plain text. Document and grievance
   attachment uploads use short-lived signed URLs for download.
-- RLS policies are currently `allow authenticated full access` across all
-  tables; tightening them to per-chapter isolation is on the roadmap before
-  any production / multi-customer use.
 - The schema lives only in the Supabase dashboard — committing
   `supabase/migrations/` so the schema can be reproduced from scratch is on
   the roadmap.
 
 ## Roadmap
 
-Tier 1 (in flight): tighten RLS policies to per-chapter isolation, commit
-schema migrations to git.
-Tier 2: CSV/Excel export, document storage bucket, audit log surfacing,
-search, sort/filter/pagination on tables.
-Tier 3: multi-user invites, role-based access, branding/white-label, email
-notifications for deadlines.
+Tier 1 (in flight): commit schema migrations to git.
+Tier 2: CSV/Excel export, audit log surfacing, search,
+sort/filter/pagination on tables.
+Tier 3: multi-user invites, branding/white-label, email notifications for
+deadlines.
 
 See `AUDIT.md` at the repo root for the full audit and prioritised action plan.
 

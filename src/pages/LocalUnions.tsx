@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
-import { useChapter } from '../lib/useChapter'
+import { useUserSettings } from '../lib/useUserSettings'
 import { useToast } from '../lib/toast'
 import { describeError } from '../lib/errors'
 import ConfirmDialog from '../lib/ConfirmDialog'
@@ -46,7 +46,7 @@ const EMPTY_COMPONENT: ComponentForm = {
 }
 
 export default function LocalUnions(): React.JSX.Element {
-  const { chapterId, loading: chapterLoading } = useChapter()
+  const { effectiveChapterId, applyChapterFilter, loading: chapterLoading } = useUserSettings()
   const toast = useToast()
   const [unions, setUnions] = useState<LocalUnion[]>([])
   const [loading, setLoading] = useState(true)
@@ -92,21 +92,18 @@ export default function LocalUnions(): React.JSX.Element {
 
   // Load unions
   useEffect(() => {
-    if (!chapterId) return
     let cancelled = false
-    void supabase
-      .from('local_unions')
-      .select('*')
-      .eq('chapter_id', chapterId)
-      .order('local_number')
-      .then(({ data, error: err }) => {
-        if (cancelled) return
-        if (err) setLoadError(describeError(err, 'Could not load local unions.'))
-        else setUnions((data ?? []) as LocalUnion[])
-        setLoading(false)
-      })
+    void applyChapterFilter(
+      supabase.from('local_unions').select('*').order('local_number')
+    ).then(({ data, error: err }: { data: unknown; error: unknown }) => {
+      if (cancelled) return
+      if (err) setLoadError(describeError(err, 'Could not load local unions.'))
+      else setUnions((data ?? []) as LocalUnion[])
+      setLoading(false)
+    })
     return () => { cancelled = true }
-  }, [chapterId])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [effectiveChapterId])
 
   // Load packages for selected union
   useEffect(() => {
@@ -197,12 +194,15 @@ export default function LocalUnions(): React.JSX.Element {
   }
 
   async function handleSaveUnion(): Promise<void> {
-    if (!chapterId) return
     setUnionError('')
     const trimmed = unionForm.local_number.trim()
     const num = parseInt(trimmed, 10)
     if (!trimmed || Number.isNaN(num) || num <= 0) {
       setUnionError('Local number must be a positive integer.')
+      return
+    }
+    if (!editingUnion && !effectiveChapterId) {
+      setUnionError('Select a specific chapter from the sidebar before adding a local union.')
       return
     }
     setSavingUnion(true)
@@ -219,7 +219,6 @@ export default function LocalUnions(): React.JSX.Element {
         .from('local_unions')
         .update(payload)
         .eq('id', editingUnion.id)
-        .eq('chapter_id', chapterId)
         .select()
         .single()
       setSavingUnion(false)
@@ -237,7 +236,7 @@ export default function LocalUnions(): React.JSX.Element {
 
     const { data, error: err } = await supabase
       .from('local_unions')
-      .insert({ ...payload, chapter_id: chapterId })
+      .insert({ ...payload, chapter_id: effectiveChapterId })
       .select()
       .single()
     setSavingUnion(false)
@@ -254,13 +253,12 @@ export default function LocalUnions(): React.JSX.Element {
   }
 
   async function handleDeleteUnion(): Promise<void> {
-    if (!confirmDeleteUnion || !chapterId) return
+    if (!confirmDeleteUnion) return
     setDeletingUnion(true)
     const { error: err } = await supabase
       .from('local_unions')
       .delete()
       .eq('id', confirmDeleteUnion.id)
-      .eq('chapter_id', chapterId)
     setDeletingUnion(false)
     if (err) {
       toast.error('Could not delete: ' + describeError(err))

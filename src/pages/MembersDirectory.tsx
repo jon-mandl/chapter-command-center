@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
-import { useChapter } from '../lib/useChapter'
+import { useUserSettings } from '../lib/useUserSettings'
 import { useToast } from '../lib/toast'
 import { describeError } from '../lib/errors'
 import ConfirmDialog from '../lib/ConfirmDialog'
@@ -69,7 +69,7 @@ function payloadFromForm(form: FormState): Omit<MemberCompany, 'id' | 'chapter_i
 }
 
 export default function MembersDirectory(): React.JSX.Element {
-  const { chapterId, loading: chapterLoading } = useChapter()
+  const { effectiveChapterId, applyChapterFilter, loading: chapterLoading } = useUserSettings()
   const toast = useToast()
   const [companies, setCompanies] = useState<MemberCompany[]>([])
   const [loading, setLoading] = useState(true)
@@ -87,24 +87,21 @@ export default function MembersDirectory(): React.JSX.Element {
   const [deleting, setDeleting] = useState(false)
 
   useEffect(() => {
-    if (!chapterId) return
     let cancelled = false
-    void supabase
-      .from('member_companies')
-      .select('*')
-      .eq('chapter_id', chapterId)
-      .order('company_name')
-      .then(({ data, error: err }) => {
-        if (cancelled) return
-        if (err) {
-          setLoadError(describeError(err, 'Could not load companies.'))
-        } else {
-          setCompanies((data ?? []) as MemberCompany[])
-        }
-        setLoading(false)
-      })
+    void applyChapterFilter(
+      supabase.from('member_companies').select('*').order('company_name')
+    ).then(({ data, error: err }: { data: unknown; error: unknown }) => {
+      if (cancelled) return
+      if (err) {
+        setLoadError(describeError(err, 'Could not load companies.'))
+      } else {
+        setCompanies((data ?? []) as MemberCompany[])
+      }
+      setLoading(false)
+    })
     return () => { cancelled = true }
-  }, [chapterId])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [effectiveChapterId])
 
   const selected = companies.find((c) => c.id === selectedId) ?? null
 
@@ -129,8 +126,11 @@ export default function MembersDirectory(): React.JSX.Element {
   }
 
   async function handleSave(): Promise<void> {
-    if (!chapterId) return
     setSaveError('')
+    if (mode === 'create' && !effectiveChapterId) {
+      setSaveError('Select a specific chapter from the sidebar before adding a company.')
+      return
+    }
     const name = form.company_name.trim()
     if (!name) { setSaveError('Company name is required.'); return }
     if (form.contact_email.trim() && !form.contact_email.includes('@')) {
@@ -143,7 +143,7 @@ export default function MembersDirectory(): React.JSX.Element {
     if (mode === 'create') {
       const { data, error: err } = await supabase
         .from('member_companies')
-        .insert({ ...payload, chapter_id: chapterId })
+        .insert({ ...payload, chapter_id: effectiveChapterId })
         .select()
         .single()
       setSaving(false)
@@ -167,7 +167,6 @@ export default function MembersDirectory(): React.JSX.Element {
       .from('member_companies')
       .update(payload)
       .eq('id', selected.id)
-      .eq('chapter_id', chapterId)
       .select()
       .single()
     setSaving(false)
@@ -184,13 +183,12 @@ export default function MembersDirectory(): React.JSX.Element {
   }
 
   async function handleDelete(): Promise<void> {
-    if (!confirmDelete || !chapterId) return
+    if (!confirmDelete) return
     setDeleting(true)
     const { error: err } = await supabase
       .from('member_companies')
       .delete()
       .eq('id', confirmDelete.id)
-      .eq('chapter_id', chapterId)
     setDeleting(false)
     if (err) {
       toast.error('Could not delete: ' + describeError(err))

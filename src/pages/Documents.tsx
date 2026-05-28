@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
-import { useChapter } from '../lib/useChapter'
+import { useUserSettings } from '../lib/useUserSettings'
 import { useToast } from '../lib/toast'
 import { describeError } from '../lib/errors'
 import ConfirmDialog from '../lib/ConfirmDialog'
@@ -19,7 +19,7 @@ import type { Document } from '../lib/types'
 const SUGGESTED_CATEGORIES = ['Contract', 'Bylaws', 'Meeting Minutes', 'Bulletin', 'Correspondence', 'Reference']
 
 export default function Documents(): React.JSX.Element {
-  const { chapterId, loading: chapterLoading } = useChapter()
+  const { effectiveChapterId, applyChapterFilter, loading: chapterLoading } = useUserSettings()
   const toast = useToast()
 
   const [documents, setDocuments] = useState<Document[]>([])
@@ -42,24 +42,21 @@ export default function Documents(): React.JSX.Element {
   const [deleting, setDeleting] = useState(false)
 
   useEffect(() => {
-    if (!chapterId) return
     let cancelled = false
-    void supabase
-      .from('documents')
-      .select('*')
-      .eq('chapter_id', chapterId)
-      .order('uploaded_at', { ascending: false })
-      .then(({ data, error: err }) => {
-        if (cancelled) return
-        if (err) {
-          setLoadError(describeError(err, 'Could not load documents.'))
-        } else {
-          setDocuments((data ?? []) as Document[])
-        }
-        setLoading(false)
-      })
+    void applyChapterFilter(
+      supabase.from('documents').select('*').order('uploaded_at', { ascending: false })
+    ).then(({ data, error: err }: { data: unknown; error: unknown }) => {
+      if (cancelled) return
+      if (err) {
+        setLoadError(describeError(err, 'Could not load documents.'))
+      } else {
+        setDocuments((data ?? []) as Document[])
+      }
+      setLoading(false)
+    })
     return () => { cancelled = true }
-  }, [chapterId])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [effectiveChapterId])
 
   // Categories present in the current dataset, for the filter chips.
   const presentCategories = useMemo(() => {
@@ -87,8 +84,12 @@ export default function Documents(): React.JSX.Element {
   }
 
   async function handleUpload(): Promise<void> {
-    if (!chapterId || !file) return
+    if (!file) return
     setUploadError('')
+    if (!effectiveChapterId) {
+      setUploadError('Select a specific chapter from the sidebar before uploading documents.')
+      return
+    }
     const name = displayName.trim() || file.name
     if (!name) { setUploadError('Display name is required.'); return }
 
@@ -96,7 +97,7 @@ export default function Documents(): React.JSX.Element {
     if (v) { setUploadError(v.message); return }
 
     setUploading(true)
-    const path = buildStoragePath(chapterId, file.name)
+    const path = buildStoragePath(effectiveChapterId, file.name)
 
     const { error: uploadErr } = await supabase.storage
       .from(STORAGE_BUCKETS.documents.name)
@@ -117,7 +118,7 @@ export default function Documents(): React.JSX.Element {
     const { data, error: dbErr } = await supabase
       .from('documents')
       .insert({
-        chapter_id: chapterId,
+        chapter_id: effectiveChapterId,
         file_name: name,
         file_path: path,
         category: category.trim() || null,
@@ -158,7 +159,7 @@ export default function Documents(): React.JSX.Element {
   }
 
   async function handleDelete(): Promise<void> {
-    if (!confirmDelete || !chapterId) return
+    if (!confirmDelete) return
     setDeleting(true)
 
     // Delete the DB row first. If that fails, the storage file is still in
@@ -168,7 +169,6 @@ export default function Documents(): React.JSX.Element {
       .from('documents')
       .delete()
       .eq('id', confirmDelete.id)
-      .eq('chapter_id', chapterId)
     if (dbErr) {
       setDeleting(false)
       toast.error('Could not delete: ' + describeError(dbErr))

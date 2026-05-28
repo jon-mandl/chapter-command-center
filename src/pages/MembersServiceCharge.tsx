@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
-import { useChapter } from '../lib/useChapter'
+import { useUserSettings } from '../lib/useUserSettings'
 import { useToast } from '../lib/toast'
 import { describeError } from '../lib/errors'
 import { inputStyle, card, errorBox, thStyle, tdStyle } from '../lib/ui'
@@ -19,7 +19,7 @@ function parseYear(iso: string): number {
 }
 
 export default function MembersServiceCharge(): React.JSX.Element {
-  const { chapterId, loading: chapterLoading } = useChapter()
+  const { effectiveChapterId, applyChapterFilter, loading: chapterLoading } = useUserSettings()
   const toast = useToast()
   const [companies, setCompanies] = useState<MemberCompany[]>([])
   const [hours, setHours] = useState<WorkforceHours[]>([])
@@ -29,12 +29,11 @@ export default function MembersServiceCharge(): React.JSX.Element {
   const [statusFilter, setStatusFilter] = useState<'all' | 'Active' | 'Inactive'>('Active')
 
   useEffect(() => {
-    if (!chapterId) return
     let cancelled = false
     void Promise.all([
-      supabase.from('member_companies').select('*').eq('chapter_id', chapterId).order('company_name'),
-      supabase.from('workforce_hours').select('*').eq('chapter_id', chapterId)
-    ]).then(([compRes, hoursRes]) => {
+      applyChapterFilter(supabase.from('member_companies').select('*').order('company_name')),
+      applyChapterFilter(supabase.from('workforce_hours').select('*'))
+    ]).then(([compRes, hoursRes]: [{ data: unknown; error: unknown }, { data: unknown; error: unknown }]) => {
       if (cancelled) return
       if (compRes.error) {
         setLoadError(describeError(compRes.error, 'Could not load companies.'))
@@ -49,7 +48,8 @@ export default function MembersServiceCharge(): React.JSX.Element {
       setLoading(false)
     })
     return () => { cancelled = true }
-  }, [chapterId, toast])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [effectiveChapterId])
 
   const availableYears = useMemo(() => {
     const years = new Set<number>([TODAY_YEAR])

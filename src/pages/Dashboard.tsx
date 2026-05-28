@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
-import { useChapter } from '../lib/useChapter'
+import { useUserSettings } from '../lib/useUserSettings'
 import { useToast } from '../lib/toast'
 import { describeError } from '../lib/errors'
 import { formatDate } from '../lib/ui'
@@ -28,7 +28,7 @@ const GRIEVANCE_STAGE_COLORS: Record<Grievance['stage'], { bg: string; color: st
 }
 
 export default function Dashboard({ onNavigate }: DashboardProps): React.JSX.Element {
-  const { chapterId, loading: chapterLoading, error: chapterError } = useChapter()
+  const { effectiveChapterId, applyChapterFilter, loading: chapterLoading } = useUserSettings()
   const toast = useToast()
   const [cycles, setCycles] = useState<NegotiationCycle[]>([])
   const [grievances, setGrievances] = useState<Grievance[]>([])
@@ -37,14 +37,13 @@ export default function Dashboard({ onNavigate }: DashboardProps): React.JSX.Ele
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    if (!chapterId) return
     let cancelled = false
 
     void Promise.all([
-      supabase.from('negotiation_cycles').select('*').eq('chapter_id', chapterId).order('created_at', { ascending: false }),
-      supabase.from('grievances').select('*').eq('chapter_id', chapterId).order('filed_date', { ascending: false }),
-      supabase.from('member_companies').select('*').eq('chapter_id', chapterId),
-      supabase.from('workforce_hours').select('*').eq('chapter_id', chapterId)
+      applyChapterFilter(supabase.from('negotiation_cycles').select('*').order('created_at', { ascending: false })),
+      applyChapterFilter(supabase.from('grievances').select('*').order('filed_date', { ascending: false })),
+      applyChapterFilter(supabase.from('member_companies').select('*')),
+      applyChapterFilter(supabase.from('workforce_hours').select('*'))
     ]).then(([cyclesRes, grievRes, compRes, hoursRes]) => {
       if (cancelled) return
       if (cyclesRes.error) toast.error('Could not load negotiations: ' + describeError(cyclesRes.error))
@@ -59,20 +58,12 @@ export default function Dashboard({ onNavigate }: DashboardProps): React.JSX.Ele
     })
 
     return () => { cancelled = true }
-  }, [chapterId, toast])
+  // Re-run on effectiveChapterId change so the admin chapter switcher refetches.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [effectiveChapterId])
 
   if (chapterLoading || loading) {
     return <div style={{ padding: '32px', fontSize: '13px', color: '#64748B' }}>Loading…</div>
-  }
-
-  if (chapterError) {
-    return (
-      <div style={{ padding: '32px' }}>
-        <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '8px', padding: '14px 18px', color: '#b91c1c', fontSize: '13px' }}>
-          {chapterError}
-        </div>
-      </div>
-    )
   }
 
   const activeCycles = cycles.filter((c) => c.status === 'Active')

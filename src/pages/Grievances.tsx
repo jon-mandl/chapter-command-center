@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
-import { useChapter } from '../lib/useChapter'
+import { useUserSettings } from '../lib/useUserSettings'
 import { useToast } from '../lib/toast'
 import { describeError } from '../lib/errors'
 import ConfirmDialog from '../lib/ConfirmDialog'
@@ -69,7 +69,7 @@ function formFromGrievance(g: Grievance): GrievanceForm {
 }
 
 export default function Grievances(): React.JSX.Element {
-  const { chapterId, loading: chapterLoading } = useChapter()
+  const { effectiveChapterId, applyChapterFilter, loading: chapterLoading } = useUserSettings()
   const toast = useToast()
   const [grievances, setGrievances] = useState<Grievance[]>([])
   const [companies, setCompanies] = useState<MemberCompany[]>([])
@@ -96,13 +96,12 @@ export default function Grievances(): React.JSX.Element {
   const [togglingLock, setTogglingLock] = useState(false)
 
   useEffect(() => {
-    if (!chapterId) return
     let cancelled = false
     void Promise.all([
-      supabase.from('grievances').select('*').eq('chapter_id', chapterId).order('filed_date', { ascending: false }),
-      supabase.from('member_companies').select('*').eq('chapter_id', chapterId).order('company_name'),
-      supabase.from('local_unions').select('*').eq('chapter_id', chapterId).order('local_number')
-    ]).then(([gRes, cRes, uRes]) => {
+      applyChapterFilter(supabase.from('grievances').select('*').order('filed_date', { ascending: false })),
+      applyChapterFilter(supabase.from('member_companies').select('*').order('company_name')),
+      applyChapterFilter(supabase.from('local_unions').select('*').order('local_number'))
+    ]).then(([gRes, cRes, uRes]: [{ data: unknown; error: unknown }, { data: unknown; error: unknown }, { data: unknown; error: unknown }]) => {
       if (cancelled) return
       if (gRes.error) {
         setLoadError(describeError(gRes.error, 'Could not load grievances.'))
@@ -116,7 +115,8 @@ export default function Grievances(): React.JSX.Element {
       setLoading(false)
     })
     return () => { cancelled = true }
-  }, [chapterId, toast])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [effectiveChapterId])
 
   const selected = grievances.find((g) => g.id === selectedId) ?? null
 
@@ -169,8 +169,11 @@ export default function Grievances(): React.JSX.Element {
   }
 
   async function handleSave(): Promise<void> {
-    if (!chapterId) return
     setSaveError('')
+    if (mode === 'create' && !effectiveChapterId) {
+      setSaveError('Select a specific chapter from the sidebar before filing a grievance.')
+      return
+    }
     const title = form.title.trim()
     if (!title) { setSaveError('Title is required.'); return }
     if (!form.filed_date) { setSaveError('Filed date is required.'); return }
@@ -195,7 +198,7 @@ export default function Grievances(): React.JSX.Element {
     if (mode === 'create') {
       const { data, error: err } = await supabase
         .from('grievances')
-        .insert({ ...payload, chapter_id: chapterId })
+        .insert({ ...payload, chapter_id: effectiveChapterId })
         .select()
         .single()
       setSaving(false)
@@ -217,7 +220,6 @@ export default function Grievances(): React.JSX.Element {
       .from('grievances')
       .update(payload)
       .eq('id', selected.id)
-      .eq('chapter_id', chapterId)
       .select()
       .single()
     setSaving(false)
@@ -233,13 +235,12 @@ export default function Grievances(): React.JSX.Element {
   }
 
   async function handleDelete(): Promise<void> {
-    if (!confirmDelete || !chapterId) return
+    if (!confirmDelete) return
     setDeleting(true)
     const { error: err } = await supabase
       .from('grievances')
       .delete()
       .eq('id', confirmDelete.id)
-      .eq('chapter_id', chapterId)
     setDeleting(false)
     if (err) {
       toast.error('Could not delete: ' + describeError(err))
@@ -252,7 +253,7 @@ export default function Grievances(): React.JSX.Element {
   }
 
   async function handleStageChange(): Promise<void> {
-    if (!confirmStageChange || !chapterId) return
+    if (!confirmStageChange) return
     setChangingStage(true)
     const { grievance, newStage } = confirmStageChange
     const updates: Partial<Grievance> = { stage: newStage }
@@ -266,7 +267,6 @@ export default function Grievances(): React.JSX.Element {
       .from('grievances')
       .update(updates)
       .eq('id', grievance.id)
-      .eq('chapter_id', chapterId)
       .select()
       .single()
     setChangingStage(false)
@@ -281,14 +281,13 @@ export default function Grievances(): React.JSX.Element {
   }
 
   async function handleLockToggle(): Promise<void> {
-    if (!confirmLockToggle || !chapterId) return
+    if (!confirmLockToggle) return
     setTogglingLock(true)
     const target = !confirmLockToggle.is_locked
     const { data, error: err } = await supabase
       .from('grievances')
       .update({ is_locked: target })
       .eq('id', confirmLockToggle.id)
-      .eq('chapter_id', chapterId)
       .select()
       .single()
     setTogglingLock(false)
