@@ -59,14 +59,14 @@ export default function MembersHours(): React.JSX.Element {
         .eq('org_id', orgId)
         .order('company_name')
     ]).then(([hoursRes, companyRes]) => {
-      const rawEntries = (hoursRes.data ?? []) as Array<{
+      const rawEntries = (hoursRes.data ?? []) as unknown as Array<{
         id: number; company_id: number; year: number; month: number; hours: number; gpep: number | null;
-        member_companies: { company_name: string } | null
+        member_companies: { company_name: string }[] | null
       }>
       setEntries(rawEntries.map((e) => ({
         id: e.id,
         company_id: e.company_id,
-        company_name: e.member_companies?.company_name ?? '—',
+        company_name: e.member_companies?.[0]?.company_name ?? '—',
         year: e.year,
         month: e.month,
         hours: e.hours,
@@ -135,8 +135,8 @@ export default function MembersHours(): React.JSX.Element {
         .single()
       if (err) { setFormError('Could not save. Please try again.') }
       else {
-        const raw = data as { id: number; company_id: number; year: number; month: number; hours: number; gpep: number | null; member_companies: { company_name: string } | null }
-        const updated: HoursEntry = { id: raw.id, company_id: raw.company_id, company_name: raw.member_companies?.company_name ?? '—', year: raw.year, month: raw.month, hours: raw.hours, gpep: raw.gpep }
+        const raw = data as unknown as { id: number; company_id: number; year: number; month: number; hours: number; gpep: number | null; member_companies: { company_name: string }[] | null }
+        const updated: HoursEntry = { id: raw.id, company_id: raw.company_id, company_name: raw.member_companies?.[0]?.company_name ?? '—', year: raw.year, month: raw.month, hours: raw.hours, gpep: raw.gpep }
         setEntries((prev) => prev.map((e) => e.id === updated.id ? updated : e))
         closePanel()
       }
@@ -150,8 +150,8 @@ export default function MembersHours(): React.JSX.Element {
         if (err.code === '23505') setFormError('An entry for this company, year, and month already exists.')
         else setFormError('Could not save. Please try again.')
       } else {
-        const raw = data as { id: number; company_id: number; year: number; month: number; hours: number; gpep: number | null; member_companies: { company_name: string } | null }
-        const created: HoursEntry = { id: raw.id, company_id: raw.company_id, company_name: raw.member_companies?.company_name ?? '—', year: raw.year, month: raw.month, hours: raw.hours, gpep: raw.gpep }
+        const raw = data as unknown as { id: number; company_id: number; year: number; month: number; hours: number; gpep: number | null; member_companies: { company_name: string }[] | null }
+        const created: HoursEntry = { id: raw.id, company_id: raw.company_id, company_name: raw.member_companies?.[0]?.company_name ?? '—', year: raw.year, month: raw.month, hours: raw.hours, gpep: raw.gpep }
         setEntries((prev) => [created, ...prev])
         closePanel()
       }
@@ -179,7 +179,7 @@ export default function MembersHours(): React.JSX.Element {
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '24px' }}>
         <div>
-          <h1 style={{ fontSize: '22px', fontWeight: 700, color: '#0F172A', margin: 0 }}>Member Hours</h1>
+          <h1 style={{ fontSize: '26px', fontWeight: 700, color: '#0F172A', margin: 0 }}>Member Hours</h1>
           <p style={{ fontSize: '13px', color: '#64748B', margin: '4px 0 0' }}>Monthly hours reported by member companies</p>
         </div>
         <button style={btnPrimary} onClick={openAdd}>+ Add Entry</button>
