@@ -579,7 +579,7 @@ function ProposalsTab({ negotiationId, isLocked }: { negotiationId: number; isLo
 
 // ─── Proposal Card ────────────────────────────────────────────────────────────
 
-function ProposalCard({ proposal, sessions, positions, expanded, isLocked, onToggle, onStatusChange, onDelete, showPosForm, onShowPosForm, onHidePosForm, posForm, setPosForm, posSaving, onDeletePosition }: {
+function ProposalCard({ proposal, sessions, positions, expanded, isLocked, onToggle, onStatusChange, onDelete, onAddPosition, showPosForm, onShowPosForm, onHidePosForm, posForm, setPosForm, posSaving, onDeletePosition }: {
   proposal: Proposal
   sessions: Session[]
   positions: ProposalPosition[] | undefined
@@ -588,6 +588,7 @@ function ProposalCard({ proposal, sessions, positions, expanded, isLocked, onTog
   onToggle: () => void
   onStatusChange: (s: Proposal['status']) => void
   onDelete: () => void
+  onAddPosition: (text: string, side: 'Management' | 'Labor', sessId: string) => void
   showPosForm: boolean
   onShowPosForm: () => void
   onHidePosForm: () => void
@@ -726,11 +727,10 @@ function ProposalCard({ proposal, sessions, positions, expanded, isLocked, onTog
 
 // ─── Overview Tab ─────────────────────────────────────────────────────────────
 
-function OverviewTab({ negotiation, localUnions, onUpdate, isLocked }: {
+function OverviewTab({ negotiation, localUnions, onUpdate }: {
   negotiation: Negotiation
   localUnions: LocalUnion[]
   onUpdate: (n: Negotiation) => void
-  isLocked: boolean
 }): React.JSX.Element {
   const [editing, setEditing] = useState(false)
   const [form, setForm] = useState({
@@ -927,7 +927,7 @@ export default function NegotiationDetail({ negotiationId, onBack }: {
 
       {/* Tab content */}
       <div style={{ flex: 1, overflowY: 'auto', background: '#F8FAFC' }}>
-        {activeTab === 'overview'  && <OverviewTab negotiation={negotiation} localUnions={localUnions} onUpdate={setNegotiation} isLocked={isLocked} />}
+        {activeTab === 'overview'  && <OverviewTab negotiation={negotiation} localUnions={localUnions} onUpdate={setNegotiation} />}
         {activeTab === 'sessions'  && <SessionsTab negotiationId={negotiationId} isLocked={isLocked} />}
         {activeTab === 'proposals' && <ProposalsTab negotiationId={negotiationId} isLocked={isLocked} />}
       </div>
