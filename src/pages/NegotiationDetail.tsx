@@ -709,7 +709,7 @@ function ProposalCard({ proposal, sessions, positions, expanded, isLocked, onTog
                   />
                 </div>
                 <div style={{ display: 'flex', gap: '8px' }}>
-                  <button style={{ ...btnPrimary, fontSize: '12px', padding: '5px 12px', opacity: !posForm.position_text.trim() || posSaving ? 0.5 : 1 }} disabled={!posForm.position_text.trim() || posSaving} onClick={() => { /* handled by parent */ }}>
+                  <button style={{ ...btnPrimary, fontSize: '12px', padding: '5px 12px', opacity: !posForm.position_text.trim() || posSaving ? 0.5 : 1 }} disabled={!posForm.position_text.trim() || posSaving} onClick={() => onAddPosition(posForm.position_text, posForm.side, posForm.session_id)}>
                     {posSaving ? 'Saving…' : 'Add Position'}
                   </button>
                   <button style={{ ...btnSecondary, fontSize: '12px', padding: '5px 10px' }} onClick={onHidePosForm}>Cancel</button>
