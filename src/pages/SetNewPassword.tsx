@@ -21,12 +21,30 @@ const labelStyle: React.CSSProperties = {
   marginBottom: '6px',
 }
 
-export default function SetNewPassword({ onDone }: { onDone: () => void }): React.JSX.Element {
+// `mode` controls the copy only — both flows do the same thing under the hood
+// (the user already has a session from the auth-callback exchange; we just
+// call updateUser to set a password they can sign in with next time).
+type SetNewPasswordMode = 'invite' | 'reset'
+
+interface Props {
+  onDone: () => void
+  mode?: SetNewPasswordMode
+}
+
+export default function SetNewPassword({ onDone, mode = 'reset' }: Props): React.JSX.Element {
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
+
+  const isInvite = mode === 'invite'
+  const heading = isInvite ? 'Welcome — set your password' : 'Set new password'
+  const sub = isInvite
+    ? "You've been invited to Chapter Command Center. Choose a password to finish setting up your account."
+    : 'Choose a new password for your account.'
+  const submitLabel = isInvite ? 'Create Password' : 'Set Password'
+  const continueLabel = isInvite ? 'Continue to App' : 'Continue to App'
 
   async function handleSubmit(e: React.FormEvent): Promise<void> {
     e.preventDefault()
@@ -57,15 +75,15 @@ export default function SetNewPassword({ onDone }: { onDone: () => void }): Reac
         borderRadius: '10px',
         padding: '40px 48px',
         width: '100%',
-        maxWidth: '400px',
+        maxWidth: '420px',
         boxShadow: '0 2px 12px rgba(0,0,0,0.06)',
       }}>
-        <div style={{ marginBottom: '28px', textAlign: 'center' }}>
+        <div style={{ marginBottom: '24px', textAlign: 'center' }}>
           <div style={{ fontSize: '20px', fontWeight: 700, color: '#0F172A', marginBottom: '6px' }}>
-            Set New Password
+            {heading}
           </div>
-          <div style={{ fontSize: '13px', color: '#64748B' }}>
-            Choose a new password for your account
+          <div style={{ fontSize: '13px', color: '#64748B', lineHeight: 1.5 }}>
+            {sub}
           </div>
         </div>
 
@@ -80,7 +98,7 @@ export default function SetNewPassword({ onDone }: { onDone: () => void }): Reac
               fontSize: '13px',
               color: '#15803d',
             }}>
-              Password updated successfully.
+              {isInvite ? 'Account ready. Welcome aboard.' : 'Password updated successfully.'}
             </div>
             <button
               onClick={onDone}
@@ -96,7 +114,7 @@ export default function SetNewPassword({ onDone }: { onDone: () => void }): Reac
                 cursor: 'pointer',
               }}
             >
-              Continue to App
+              {continueLabel}
             </button>
           </div>
         ) : (
@@ -108,6 +126,7 @@ export default function SetNewPassword({ onDone }: { onDone: () => void }): Reac
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
+                autoFocus
                 autoComplete="new-password"
                 style={fieldStyle}
               />
@@ -154,7 +173,7 @@ export default function SetNewPassword({ onDone }: { onDone: () => void }): Reac
                 cursor: loading ? 'not-allowed' : 'pointer',
               }}
             >
-              {loading ? 'Saving…' : 'Set Password'}
+              {loading ? 'Saving…' : submitLabel}
             </button>
           </form>
         )}

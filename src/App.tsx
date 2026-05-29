@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { Session } from '@supabase/supabase-js'
-import { supabase } from './lib/supabase'
+import { supabase, authCallbackType } from './lib/supabase'
 import { useUserSettings } from './lib/useUserSettings'
 import type { Chapter, ID } from './lib/types'
 import Login from './pages/Login'
@@ -245,28 +245,18 @@ function PendingAssignment({ onSignOut }: { onSignOut: () => void }): React.JSX.
   )
 }
 
-// Read the auth-callback type out of the URL hash. Supabase puts the invite /
-// recovery token in the hash fragment (#access_token=...&type=invite) and the
-// SDK consumes it on load. We capture the type *before* the SDK clears the
-// hash so we know to force the user through "set your password."
-function readAuthTypeFromHash(): 'invite' | 'recovery' | null {
-  const hash = window.location.hash.startsWith('#') ? window.location.hash.slice(1) : window.location.hash
-  if (!hash) return null
-  const params = new URLSearchParams(hash)
-  const type = params.get('type')
-  if (type === 'invite' || type === 'signup') return 'invite'
-  if (type === 'recovery') return 'recovery'
-  return null
-}
-
 export default function App(): React.JSX.Element {
   const [session, setSession] = useState<Session | null>(null)
   const [authLoading, setAuthLoading] = useState(true)
   const [page, setPage] = useState<Page>('dashboard')
   const [selectedNegotiationId, setSelectedNegotiationId] = useState<ID | null>(null)
   // Forces the SetNewPassword screen. Set for both recovery (forgot-password)
-  // and invite (first-time accept) flows. Cleared once the user finishes.
-  const [mustSetPassword, setMustSetPassword] = useState<boolean>(() => readAuthTypeFromHash() !== null)
+  // and invite (first-time accept) flows. We seed it from a snapshot taken in
+  // lib/supabase.ts *before* the SDK consumed the URL hash; PASSWORD_RECOVERY
+  // events also flip it on (e.g. when a recovery link arrives after mount).
+  const initialCallback = authCallbackType()
+  const [mustSetPassword, setMustSetPassword] = useState<boolean>(initialCallback !== null)
+  const [callbackKind, setCallbackKind] = useState<'invite' | 'recovery' | null>(initialCallback)
   const { loading: settingsLoading, error: settingsError, isAdmin, needsOnboarding } = useUserSettings()
 
   function handleNavigate(p: Page) {
@@ -281,17 +271,40 @@ export default function App(): React.JSX.Element {
     })
 
     const { data: listener } = supabase.auth.onAuthStateChange((event, sess) => {
-      // Recovery (forgot-password) emits its own event. Invite acceptance
-      // emits SIGNED_IN — we detect that via the URL hash on first load and
-      // through mustSetPassword above.
+      // PASSWORD_RECOVERY fires when the SDK finishes exchanging a recovery
+      // token. Invite acceptance fires SIGNED_IN — that path is covered by
+      // the module-load snapshot in lib/supabase.ts.
       if (event === 'PASSWORD_RECOVERY') {
         setMustSetPassword(true)
+        setCallbackKind('recovery')
       }
       setSession(sess)
     })
 
     return () => listener.subscription.unsubscribe()
   }, [])
+
+  // Once the invite/recovery session is established, scrub the auth tokens
+  // from the URL so a refresh doesn't re-trigger the screen and the bookmark
+  // bar stays clean. We wait until we actually have a session so the SDK has
+  // finished its own hash consumption.
+  useEffect(() => {
+    if (session && window.location.hash) {
+      window.history.replaceState(null, '', window.location.pathname + window.location.search)
+    }
+  }, [session])
+
+  // If the user landed here from an invite or recovery link, hold on the
+  // loading screen until the SDK has finished exchanging the hash tokens for
+  // a real session. Otherwise the `!session` branch below would briefly flash
+  // the Login page in between hash detection and SIGNED_IN.
+  if (mustSetPassword && !session) {
+    return (
+      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#F8FAFC' }}>
+        <div style={{ fontSize: '14px', color: '#64748B' }}>Setting up your account…</div>
+      </div>
+    )
+  }
 
   if (authLoading) {
     return (
@@ -306,7 +319,12 @@ export default function App(): React.JSX.Element {
   }
 
   if (mustSetPassword) {
-    return <SetNewPassword onDone={() => setMustSetPassword(false)} />
+    return (
+      <SetNewPassword
+        mode={callbackKind === 'invite' ? 'invite' : 'reset'}
+        onDone={() => { setMustSetPassword(false); setCallbackKind(null) }}
+      />
+    )
   }
 
   // user_settings is being fetched. Without it we don't yet know the user's
