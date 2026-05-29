@@ -170,7 +170,7 @@ export default function AdminUsers(): React.JSX.Element {
     if (!inviteForm.chapter_id) { setInviteError('Pick a chapter.'); return }
     setSendingInvite(true)
     const { data, error } = await supabase.functions.invoke('invite-user', {
-      body: { email, chapter_id: inviteForm.chapter_id, role: inviteForm.role }
+      body: { action: 'invite', email, chapter_id: inviteForm.chapter_id, role: inviteForm.role }
     })
     setSendingInvite(false)
     if (error) {
