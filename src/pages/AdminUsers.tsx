@@ -20,6 +20,17 @@ const ROLE_COLORS: Record<Role, { bg: string; color: string }> = {
 // every user.
 type UserRow = UserSettings & { chapters: { id: ID; name: string } | null }
 
+// pending_invites rows joined to the chapter the invitee will land in.
+interface PendingInviteRow {
+  id: ID
+  email: string
+  chapter_id: ID
+  role: Role
+  invited_by: ID | null
+  created_at: string
+  chapters: { id: ID; name: string } | null
+}
+
 export default function AdminUsers(): React.JSX.Element {
   const { settings: mySettings, refresh: refreshMySettings, isAdmin } = useUserSettings()
   const toast = useToast()
@@ -41,13 +52,22 @@ export default function AdminUsers(): React.JSX.Element {
   const [savingChapter, setSavingChapter] = useState(false)
   const [chapterError, setChapterError] = useState('')
 
+  // Invite user form + pending invites list
+  const [pendingInvites, setPendingInvites] = useState<PendingInviteRow[]>([])
+  const [showInviteForm, setShowInviteForm] = useState(false)
+  const [inviteForm, setInviteForm] = useState<{ email: string; chapter_id: ID | ''; role: Role }>({ email: '', chapter_id: '', role: 'member' })
+  const [sendingInvite, setSendingInvite] = useState(false)
+  const [inviteError, setInviteError] = useState('')
+  const [cancellingInviteId, setCancellingInviteId] = useState<ID | null>(null)
+
   useEffect(() => {
     if (!isAdmin) return
     let cancelled = false
     void Promise.all([
       supabase.from('user_settings').select('*, chapters(id, name)').order('created_at', { ascending: false }),
-      supabase.from('chapters').select('*').order('name')
-    ]).then(([uRes, cRes]) => {
+      supabase.from('chapters').select('*').order('name'),
+      supabase.from('pending_invites').select('*, chapters(id, name)').order('created_at', { ascending: false })
+    ]).then(([uRes, cRes, iRes]) => {
       if (cancelled) return
       if (uRes.error) {
         setLoadError(describeError(uRes.error, 'Could not load users.'))
@@ -58,6 +78,11 @@ export default function AdminUsers(): React.JSX.Element {
         toast.error('Could not load chapters: ' + describeError(cRes.error))
       } else {
         setChapters((cRes.data ?? []) as Chapter[])
+      }
+      if (iRes.error) {
+        toast.error('Could not load pending invites: ' + describeError(iRes.error))
+      } else {
+        setPendingInvites((iRes.data ?? []) as PendingInviteRow[])
       }
       setLoading(false)
     })
@@ -128,6 +153,51 @@ export default function AdminUsers(): React.JSX.Element {
     toast.success('Chapter created.')
   }
 
+  async function handleSendInvite(): Promise<void> {
+    setInviteError('')
+    const email = inviteForm.email.trim().toLowerCase()
+    if (!email) { setInviteError('Email is required.'); return }
+    if (!inviteForm.chapter_id) { setInviteError('Pick a chapter.'); return }
+    setSendingInvite(true)
+    const { data, error } = await supabase.functions.invoke('invite-user', {
+      body: { email, chapter_id: inviteForm.chapter_id, role: inviteForm.role }
+    })
+    setSendingInvite(false)
+    if (error) {
+      const msg = describeError(error, 'Could not send invite.')
+      setInviteError(msg)
+      toast.error(msg)
+      return
+    }
+    // The Edge Function returns success; re-pull pending invites so the new
+    // row appears (including its server-assigned id and created_at).
+    const { data: refreshed, error: refreshErr } = await supabase
+      .from('pending_invites')
+      .select('*, chapters(id, name)')
+      .order('created_at', { ascending: false })
+    if (!refreshErr && refreshed) {
+      setPendingInvites(refreshed as PendingInviteRow[])
+    }
+    setShowInviteForm(false)
+    setInviteForm({ email: '', chapter_id: '', role: 'member' })
+    toast.success(`Invite sent to ${email}.`)
+    // Touch `data` so unused-var lint doesn't fire; the Edge Function payload
+    // isn't surfaced beyond the success toast.
+    void data
+  }
+
+  async function handleCancelInvite(invite: PendingInviteRow): Promise<void> {
+    setCancellingInviteId(invite.id)
+    const { error } = await supabase.from('pending_invites').delete().eq('id', invite.id)
+    setCancellingInviteId(null)
+    if (error) {
+      toast.error('Could not cancel invite: ' + describeError(error))
+      return
+    }
+    setPendingInvites((prev) => prev.filter((i) => i.id !== invite.id))
+    toast.success(`Invite for ${invite.email} cancelled.`)
+  }
+
   if (!isAdmin) {
     return (
       <div style={{ padding: '32px' }}>
@@ -149,9 +219,14 @@ export default function AdminUsers(): React.JSX.Element {
             Assign chapters and roles to users. New accounts arrive here pending assignment.
           </p>
         </div>
-        {!showChapterForm && (
-          <button style={btnPrimary} onClick={() => setShowChapterForm(true)}>+ New Chapter</button>
-        )}
+        <div style={{ display: 'flex', gap: '8px' }}>
+          {!showInviteForm && (
+            <button style={btnPrimary} onClick={() => setShowInviteForm(true)}>+ Invite User</button>
+          )}
+          {!showChapterForm && (
+            <button style={btnSecondary} onClick={() => setShowChapterForm(true)}>+ New Chapter</button>
+          )}
+        </div>
       </div>
 
       {loadError && <div style={errorBox}>{loadError}</div>}
@@ -179,6 +254,117 @@ export default function AdminUsers(): React.JSX.Element {
               {savingChapter ? 'Saving…' : 'Create'}
             </button>
             <button style={btnSecondary} disabled={savingChapter} onClick={() => { setShowChapterForm(false); setChapterError('') }}>Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {showInviteForm && (
+        <div style={{ ...card, borderColor: '#1E3A8A', borderWidth: '1.5px', marginBottom: '20px' }}>
+          <div style={{ fontSize: '15px', fontWeight: 700, color: '#0F172A', marginBottom: '4px' }}>Invite User</div>
+          <div style={{ fontSize: '12px', color: '#64748B', marginBottom: '16px' }}>
+            They'll get an email with a link to set their password. The chapter and role you pick
+            here are applied automatically when they accept.
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '2fr 1.5fr 1fr', gap: '12px', marginBottom: '16px' }}>
+            <div>
+              <label style={labelStyle}>Email <span style={{ color: '#ef4444' }}>*</span></label>
+              <input
+                style={inputStyle}
+                type="email"
+                value={inviteForm.email}
+                autoFocus
+                onChange={(e) => setInviteForm({ ...inviteForm, email: e.target.value })}
+                placeholder="person@example.com"
+              />
+            </div>
+            <div>
+              <label style={labelStyle}>Chapter <span style={{ color: '#ef4444' }}>*</span></label>
+              <select
+                style={inputStyle}
+                value={inviteForm.chapter_id}
+                onChange={(e) => setInviteForm({ ...inviteForm, chapter_id: e.target.value as ID | '' })}
+              >
+                <option value="">— Select a chapter —</option>
+                {chapters.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label style={labelStyle}>Role</label>
+              <select
+                style={inputStyle}
+                value={inviteForm.role}
+                onChange={(e) => setInviteForm({ ...inviteForm, role: e.target.value as Role })}
+              >
+                {ROLES.map((r) => <option key={r} value={r} style={{ textTransform: 'capitalize' }}>{r}</option>)}
+              </select>
+            </div>
+          </div>
+          {inviteError && <div style={errorBox}>{inviteError}</div>}
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <button style={{ ...btnPrimary, opacity: sendingInvite ? 0.5 : 1 }} disabled={sendingInvite} onClick={handleSendInvite}>
+              {sendingInvite ? 'Sending…' : 'Send Invite'}
+            </button>
+            <button style={btnSecondary} disabled={sendingInvite} onClick={() => { setShowInviteForm(false); setInviteError('') }}>Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {pendingInvites.length > 0 && (
+        <div style={{ marginBottom: '24px' }}>
+          <div style={{ fontSize: '13px', fontWeight: 600, color: '#0F172A', marginBottom: '8px' }}>
+            Pending invites ({pendingInvites.length})
+          </div>
+          <div style={{ background: '#fff', border: '1px solid #E2E8F0', borderRadius: '10px', overflow: 'hidden' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr>
+                  <th style={thStyle} scope="col">Email</th>
+                  <th style={thStyle} scope="col">Role</th>
+                  <th style={thStyle} scope="col">Chapter</th>
+                  <th style={thStyle} scope="col">Invited</th>
+                  <th style={thStyle} scope="col" aria-label="Actions"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {pendingInvites.map((inv) => {
+                  const rc = ROLE_COLORS[inv.role] ?? ROLE_COLORS.member
+                  const isCancelling = cancellingInviteId === inv.id
+                  return (
+                    <tr key={inv.id} style={{ opacity: isCancelling ? 0.6 : 1 }}>
+                      <td style={tdStyle}>
+                        <div style={{ fontWeight: 600, color: '#0F172A' }}>{inv.email}</div>
+                      </td>
+                      <td style={tdStyle}>
+                        <span style={{ fontSize: '11px', fontWeight: 600, padding: '2px 8px', borderRadius: '20px', background: rc.bg, color: rc.color, textTransform: 'capitalize' }}>
+                          {inv.role}
+                        </span>
+                      </td>
+                      <td style={tdStyle}>
+                        <span style={{ fontSize: '13px', color: '#0F172A' }}>
+                          {inv.chapters?.name ?? '(deleted chapter)'}
+                        </span>
+                      </td>
+                      <td style={tdStyle}>
+                        <span style={{ fontSize: '12px', color: '#64748B' }}>
+                          {formatDate(inv.created_at.slice(0, 10))}
+                        </span>
+                      </td>
+                      <td style={{ ...tdStyle, textAlign: 'right' }}>
+                        <button
+                          style={{ ...btnSecondary, color: '#b91c1c', borderColor: '#fecaca', padding: '4px 10px', fontSize: '12px' }}
+                          disabled={isCancelling}
+                          onClick={() => handleCancelInvite(inv)}
+                          aria-label={`Cancel invite for ${inv.email}`}
+                          title={`Cancel invite for ${inv.email}`}
+                        >
+                          {isCancelling ? 'Cancelling…' : 'Cancel'}
+                        </button>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
           </div>
         </div>
       )}

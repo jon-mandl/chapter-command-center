@@ -245,12 +245,28 @@ function PendingAssignment({ onSignOut }: { onSignOut: () => void }): React.JSX.
   )
 }
 
+// Read the auth-callback type out of the URL hash. Supabase puts the invite /
+// recovery token in the hash fragment (#access_token=...&type=invite) and the
+// SDK consumes it on load. We capture the type *before* the SDK clears the
+// hash so we know to force the user through "set your password."
+function readAuthTypeFromHash(): 'invite' | 'recovery' | null {
+  const hash = window.location.hash.startsWith('#') ? window.location.hash.slice(1) : window.location.hash
+  if (!hash) return null
+  const params = new URLSearchParams(hash)
+  const type = params.get('type')
+  if (type === 'invite' || type === 'signup') return 'invite'
+  if (type === 'recovery') return 'recovery'
+  return null
+}
+
 export default function App(): React.JSX.Element {
   const [session, setSession] = useState<Session | null>(null)
   const [authLoading, setAuthLoading] = useState(true)
   const [page, setPage] = useState<Page>('dashboard')
   const [selectedNegotiationId, setSelectedNegotiationId] = useState<ID | null>(null)
-  const [isRecovery, setIsRecovery] = useState(false)
+  // Forces the SetNewPassword screen. Set for both recovery (forgot-password)
+  // and invite (first-time accept) flows. Cleared once the user finishes.
+  const [mustSetPassword, setMustSetPassword] = useState<boolean>(() => readAuthTypeFromHash() !== null)
   const { loading: settingsLoading, error: settingsError, isAdmin, needsOnboarding } = useUserSettings()
 
   function handleNavigate(p: Page) {
@@ -265,10 +281,11 @@ export default function App(): React.JSX.Element {
     })
 
     const { data: listener } = supabase.auth.onAuthStateChange((event, sess) => {
+      // Recovery (forgot-password) emits its own event. Invite acceptance
+      // emits SIGNED_IN — we detect that via the URL hash on first load and
+      // through mustSetPassword above.
       if (event === 'PASSWORD_RECOVERY') {
-        setIsRecovery(true)
-      } else {
-        setIsRecovery(false)
+        setMustSetPassword(true)
       }
       setSession(sess)
     })
@@ -288,8 +305,8 @@ export default function App(): React.JSX.Element {
     return <Login />
   }
 
-  if (isRecovery) {
-    return <SetNewPassword onDone={() => setIsRecovery(false)} />
+  if (mustSetPassword) {
+    return <SetNewPassword onDone={() => setMustSetPassword(false)} />
   }
 
   // user_settings is being fetched. Without it we don't yet know the user's

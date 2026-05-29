@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { supabase } from '../lib/supabase'
 
-type Mode = 'login' | 'signup' | 'reset'
+type Mode = 'login' | 'reset'
 
 const fieldStyle: React.CSSProperties = {
   width: '100%',
@@ -69,7 +69,6 @@ export default function Login(): React.JSX.Element {
   const [mode, setMode] = useState<Mode>('login')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [confirmPassword, setConfirmPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
@@ -79,7 +78,6 @@ export default function Login(): React.JSX.Element {
     setError(null)
     setSuccess(null)
     setPassword('')
-    setConfirmPassword('')
   }
 
   async function handleLogin(e: React.FormEvent): Promise<void> {
@@ -88,29 +86,6 @@ export default function Login(): React.JSX.Element {
     setError(null)
     const { error: err } = await supabase.auth.signInWithPassword({ email, password })
     if (err) setError(err.message)
-    setLoading(false)
-  }
-
-  async function handleSignUp(e: React.FormEvent): Promise<void> {
-    e.preventDefault()
-    if (password !== confirmPassword) {
-      setError('Passwords do not match.')
-      return
-    }
-    if (password.length < 6) {
-      setError('Password must be at least 6 characters.')
-      return
-    }
-    setLoading(true)
-    setError(null)
-    const { error: err } = await supabase.auth.signUp({ email, password })
-    if (err) {
-      setError(err.message)
-    } else {
-      setSuccess('Account created. Check your email to confirm before signing in.')
-      setPassword('')
-      setConfirmPassword('')
-    }
     setLoading(false)
   }
 
@@ -124,15 +99,14 @@ export default function Login(): React.JSX.Element {
     if (err) {
       setError(err.message)
     } else {
-      setSuccess('Password reset email sent. Check your inbox.')
+      setSuccess('If an account exists for that email, a reset link is on its way.')
     }
     setLoading(false)
   }
 
   const titles: Record<Mode, { heading: string; sub: string }> = {
-    login:  { heading: 'Chapter Command Center', sub: 'Sign in to your account' },
-    signup: { heading: 'Create an Account',      sub: 'Join Chapter Command Center' },
-    reset:  { heading: 'Reset Password',         sub: 'Enter your email to receive a reset link' },
+    login: { heading: 'Chapter Command Center', sub: 'Sign in to your account' },
+    reset: { heading: 'Reset Password',          sub: 'Enter your email to receive a reset link' },
   }
 
   return (
@@ -155,7 +129,6 @@ export default function Login(): React.JSX.Element {
           </div>
         </div>
 
-        {/* ── Login ── */}
         {mode === 'login' && (
           <form onSubmit={handleLogin}>
             <div style={{ marginBottom: '16px' }}>
@@ -194,73 +167,12 @@ export default function Login(): React.JSX.Element {
               {loading ? 'Signing in…' : 'Sign In'}
             </button>
 
-            <div style={{ textAlign: 'center', marginTop: '20px', fontSize: '13px', color: '#64748B' }}>
-              Don't have an account?{' '}
-              <button type="button" style={linkBtn} onClick={() => switchMode('signup')}>
-                Sign up
-              </button>
+            <div style={{ textAlign: 'center', marginTop: '20px', fontSize: '12px', color: '#94A3B8', lineHeight: 1.5 }}>
+              Accounts are created by an administrator. If you need access, contact your chapter admin.
             </div>
           </form>
         )}
 
-        {/* ── Sign Up ── */}
-        {mode === 'signup' && (
-          <form onSubmit={handleSignUp}>
-            <div style={{ marginBottom: '16px' }}>
-              <label style={labelStyle}>Email</label>
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-                autoComplete="email"
-                style={fieldStyle}
-              />
-            </div>
-
-            <div style={{ marginBottom: '16px' }}>
-              <label style={labelStyle}>Password</label>
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                autoComplete="new-password"
-                style={fieldStyle}
-              />
-            </div>
-
-            <div style={{ marginBottom: '24px' }}>
-              <label style={labelStyle}>Confirm Password</label>
-              <input
-                type="password"
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                required
-                autoComplete="new-password"
-                style={fieldStyle}
-              />
-            </div>
-
-            {error && <div style={errorBox}>{error}</div>}
-            {success && <div style={successBox}>{success}</div>}
-
-            {!success && (
-              <button type="submit" disabled={loading} style={submitBtn(loading)}>
-                {loading ? 'Creating account…' : 'Create Account'}
-              </button>
-            )}
-
-            <div style={{ textAlign: 'center', marginTop: '20px', fontSize: '13px', color: '#64748B' }}>
-              Already have an account?{' '}
-              <button type="button" style={linkBtn} onClick={() => switchMode('login')}>
-                Sign in
-              </button>
-            </div>
-          </form>
-        )}
-
-        {/* ── Reset Password ── */}
         {mode === 'reset' && (
           <form onSubmit={handleReset}>
             <div style={{ marginBottom: '24px' }}>
