@@ -3,17 +3,16 @@ import { supabase } from '../lib/supabase'
 import { useUserSettings } from '../lib/useUserSettings'
 import { useToast } from '../lib/toast'
 import { describeError } from '../lib/errors'
-import { inputStyle, labelStyle, btnPrimary, btnSecondary, card, errorBox, formatDate, thStyle, tdStyle } from '../lib/ui'
+import { inputStyle, labelStyle, btnPrimary, btnSecondary, btnDanger, card, errorBox, formatDate, thStyle, tdStyle } from '../lib/ui'
 import type { Chapter, UserSettings, ID } from '../lib/types'
 
 type Role = NonNullable<UserSettings['role']>
 
-const ROLES: Role[] = ['admin', 'manager', 'member']
+const ROLES: Role[] = ['admin', 'user']
 
-const ROLE_COLORS: Record<Role, { bg: string; color: string }> = {
-  admin:   { bg: '#fef2f2', color: '#b91c1c' },
-  manager: { bg: '#EEF2FF', color: '#4F46E5' },
-  member:  { bg: '#F8FAFC', color: '#64748B' }
+const ROLE_COLORS: Record<string, { bg: string; color: string }> = {
+  admin: { bg: '#fef2f2', color: '#b91c1c' },
+  user:  { bg: '#F8FAFC', color: '#64748B' },
 }
 
 // user_settings rows joined to chapters. The admin RLS lets us read this for
@@ -55,10 +54,15 @@ export default function AdminUsers(): React.JSX.Element {
   const [savingChapter, setSavingChapter] = useState(false)
   const [chapterError, setChapterError] = useState('')
 
+  // Delete confirmation dialog
+  const [userToDelete, setUserToDelete] = useState<UserRow | null>(null)
+  const [deleting, setDeleting] = useState(false)
+  const [deleteError, setDeleteError] = useState('')
+
   // Invite user form + pending invites list
   const [pendingInvites, setPendingInvites] = useState<PendingInviteRow[]>([])
   const [showInviteForm, setShowInviteForm] = useState(false)
-  const [inviteForm, setInviteForm] = useState<{ email: string; chapter_id: ID | ''; role: Role }>({ email: '', chapter_id: '', role: 'member' })
+  const [inviteForm, setInviteForm] = useState<{ email: string; chapter_id: ID | ''; role: Role }>({ email: '', chapter_id: '', role: 'user' })
   const [sendingInvite, setSendingInvite] = useState(false)
   const [inviteError, setInviteError] = useState('')
   const [cancellingInviteId, setCancellingInviteId] = useState<ID | null>(null)
@@ -204,6 +208,24 @@ export default function AdminUsers(): React.JSX.Element {
     toast.success(`Invite for ${invite.email} cancelled.`)
   }
 
+  async function handleDeleteUser(): Promise<void> {
+    if (!userToDelete) return
+    setDeleteError('')
+    setDeleting(true)
+    const { error } = await supabase.functions.invoke('invite-user', {
+      body: { action: 'delete', user_id: userToDelete.user_id }
+    })
+    setDeleting(false)
+    if (error) {
+      setDeleteError(describeError(error, 'Could not delete user.'))
+      return
+    }
+    setUsers((prev) => prev.filter((u) => u.user_id !== userToDelete.user_id))
+    if (expandedUserId === userToDelete.user_id) setExpandedUserId(null)
+    toast.success(`${userToDelete.display_name ?? userToDelete.email ?? 'User'} deleted.`)
+    setUserToDelete(null)
+  }
+
   if (!isAdmin) {
     return (
       <div style={{ padding: '32px' }}>
@@ -333,7 +355,7 @@ export default function AdminUsers(): React.JSX.Element {
               </thead>
               <tbody>
                 {pendingInvites.map((inv) => {
-                  const rc = ROLE_COLORS[inv.role] ?? ROLE_COLORS.member
+                  const rc = ROLE_COLORS[inv.role] ?? ROLE_COLORS.user
                   const isCancelling = cancellingInviteId === inv.id
                   return (
                     <tr key={inv.id} style={{ opacity: isCancelling ? 0.6 : 1 }}>
@@ -418,13 +440,14 @@ export default function AdminUsers(): React.JSX.Element {
                 <th style={thStyle} scope="col">Chapter</th>
                 <th style={thStyle} scope="col">Profile</th>
                 <th style={thStyle} scope="col">Created</th>
+                <th style={thStyle} scope="col" aria-label="Actions"></th>
               </tr>
             </thead>
             <tbody>
               {filtered.map((u) => {
                 const isPending = pendingUserId === u.user_id
                 const isSelf = mySettings?.user_id === u.user_id
-                const rc = u.role ? ROLE_COLORS[u.role as Role] : ROLE_COLORS.member
+                const rc = ROLE_COLORS[u.role ?? 'user'] ?? ROLE_COLORS.user
                 const isExpanded = expandedUserId === u.user_id
                 return (
                   <React.Fragment key={u.user_id}>
@@ -448,10 +471,10 @@ export default function AdminUsers(): React.JSX.Element {
                       <td style={tdStyle} onClick={(e) => e.stopPropagation()}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                           <span style={{ fontSize: '11px', fontWeight: 600, padding: '2px 8px', borderRadius: '20px', background: rc.bg, color: rc.color, textTransform: 'capitalize' }}>
-                            {u.role ?? 'member'}
+                            {u.role ?? 'user'}
                           </span>
                           <select
-                            value={u.role ?? 'member'}
+                            value={u.role ?? 'user'}
                             disabled={isPending}
                             onChange={(e) => updateUser(u.user_id, { role: e.target.value as Role })}
                             style={{ ...inputStyle, width: 'auto', fontSize: '12px', padding: '4px 8px' }}
@@ -490,10 +513,23 @@ export default function AdminUsers(): React.JSX.Element {
                           {formatDate(u.created_at.slice(0, 10))}
                         </span>
                       </td>
+                      <td style={{ ...tdStyle, textAlign: 'right' }} onClick={(e) => e.stopPropagation()}>
+                        {!isSelf && (
+                          <button
+                            style={{ ...btnDanger, padding: '4px 10px', fontSize: '12px' }}
+                            disabled={isPending}
+                            onClick={() => { setDeleteError(''); setUserToDelete(u) }}
+                            aria-label={`Delete ${u.display_name ?? u.email ?? 'user'}`}
+                            title={`Delete ${u.display_name ?? u.email ?? 'user'}`}
+                          >
+                            Delete
+                          </button>
+                        )}
+                      </td>
                     </tr>
                     {isExpanded && (
                       <tr style={{ background: '#F8FAFC' }}>
-                        <td colSpan={6} style={{ padding: '16px 24px', borderBottom: '1px solid #F1F5F9' }}>
+                        <td colSpan={7} style={{ padding: '16px 24px', borderBottom: '1px solid #F1F5F9' }}>
                           <UserDetail user={u} />
                         </td>
                       </tr>
@@ -510,6 +546,51 @@ export default function AdminUsers(): React.JSX.Element {
         Click any row to see the user's full profile — phone, address, and remaining contact fields.
         Role and chapter remain editable from the row itself.
       </div>
+
+      {/* Delete confirmation modal */}
+      {userToDelete && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="delete-user-heading"
+          style={{
+            position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.5)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000
+          }}
+        >
+          <div style={{ background: '#fff', borderRadius: '12px', padding: '28px 32px', maxWidth: '420px', width: '100%', boxShadow: '0 8px 32px rgba(15,23,42,0.18)' }}>
+            <h2 id="delete-user-heading" style={{ fontSize: '18px', fontWeight: 700, color: '#0F172A', margin: '0 0 8px' }}>
+              Delete user?
+            </h2>
+            <p style={{ fontSize: '13px', color: '#475569', lineHeight: 1.6, margin: '0 0 6px' }}>
+              You are about to permanently delete:
+            </p>
+            <p style={{ fontSize: '14px', fontWeight: 600, color: '#0F172A', margin: '0 0 8px' }}>
+              {userToDelete.display_name ?? userToDelete.email ?? userToDelete.user_id}
+            </p>
+            <p style={{ fontSize: '13px', color: '#64748B', margin: '0 0 20px', lineHeight: 1.5 }}>
+              This removes their account from Supabase Auth and all associated data. This cannot be undone.
+            </p>
+            {deleteError && <div style={errorBox}>{deleteError}</div>}
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button
+                style={{ ...btnDanger, opacity: deleting ? 0.5 : 1 }}
+                disabled={deleting}
+                onClick={handleDeleteUser}
+              >
+                {deleting ? 'Deleting…' : 'Yes, delete'}
+              </button>
+              <button
+                style={btnSecondary}
+                disabled={deleting}
+                onClick={() => { setUserToDelete(null); setDeleteError('') }}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

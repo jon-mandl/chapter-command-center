@@ -15,15 +15,13 @@ const TABS: { id: SettingsTab; label: string }[] = [
 ]
 
 const ROLE_LABEL: Record<string, string> = {
-  admin:   'Admin',
-  manager: 'Manager',
-  member:  'Member',
+  admin: 'Admin',
+  user:  'User',
 }
 
 const ROLE_COLOR: Record<string, { bg: string; color: string }> = {
-  admin:   { bg: '#fef2f2', color: '#b91c1c' },
-  manager: { bg: '#EEF2FF', color: '#4F46E5' },
-  member:  { bg: '#F8FAFC', color: '#64748B' },
+  admin: { bg: '#fef2f2', color: '#b91c1c' },
+  user:  { bg: '#F8FAFC', color: '#64748B' },
 }
 
 function Section({ title, children }: { title: string; children: React.ReactNode }): React.JSX.Element {
@@ -182,9 +180,9 @@ function AccountInfoTab(): React.JSX.Element {
 
   if (!settings) return <div style={{ fontSize: '13px', color: '#64748B' }}>Loading…</div>
 
-  const role = settings.role ?? 'member'
+  const role = settings.role ?? 'user'
   const roleLabel = ROLE_LABEL[role] ?? role
-  const roleColor = ROLE_COLOR[role] ?? ROLE_COLOR.member
+  const roleColor = ROLE_COLOR[role] ?? ROLE_COLOR.user
 
   return (
     <Section title="Account Info">

@@ -18,7 +18,7 @@ type LooseSupabaseQuery = any
 //
 //   - `settings`: the raw user_settings row (or null while loading/before
 //     login).
-//   - `role` / `isAdmin` / `isManager` / `needsOnboarding`: derived booleans
+//   - `role` / `isAdmin` / `needsOnboarding`: derived booleans
 //     for nav/route guards.
 //   - `chapterId`: the user's own chapter (what they're assigned to in
 //     user_settings).
@@ -42,7 +42,6 @@ interface UserSettingsContextValue {
 
   role: UserSettings['role'] | null
   isAdmin: boolean
-  isManager: boolean
   needsOnboarding: boolean
   // True when the user has authenticated and (for non-admins) been assigned
   // to a chapter, but hasn't filled in the post-invite profile form yet. The
@@ -146,7 +145,6 @@ export function UserSettingsProvider({ children }: { children: ReactNode }): Rea
 
   const role = settings?.role ?? null
   const isAdmin = role === 'admin'
-  const isManager = role === 'manager'
 
   const chapterId = settings?.chapter_id ?? null
   const needsOnboarding = !!settings && chapterId === null && !isAdmin
@@ -178,7 +176,6 @@ export function UserSettingsProvider({ children }: { children: ReactNode }): Rea
     error,
     role,
     isAdmin,
-    isManager,
     needsOnboarding,
     needsProfileCompletion,
     profileCompleted,
@@ -188,7 +185,7 @@ export function UserSettingsProvider({ children }: { children: ReactNode }): Rea
     setAdminViewChapterId,
     applyChapterFilter,
     refresh
-  }), [settings, loading, error, role, isAdmin, isManager, needsOnboarding, needsProfileCompletion, profileCompleted, chapterId, effectiveChapterId, adminViewChapterId, setAdminViewChapterId, applyChapterFilter, refresh])
+  }), [settings, loading, error, role, isAdmin, needsOnboarding, needsProfileCompletion, profileCompleted, chapterId, effectiveChapterId, adminViewChapterId, setAdminViewChapterId, applyChapterFilter, refresh])
 
   return (
     <UserSettingsContext.Provider value={value}>

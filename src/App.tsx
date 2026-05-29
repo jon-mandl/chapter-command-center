@@ -43,9 +43,8 @@ const NAV_ITEMS: NavItem[] = [
 // pastels here rather than the page-level ROLE_COLORS that assume a white
 // background.
 const SIDEBAR_ROLE_BADGE: Record<string, { bg: string; color: string; label: string }> = {
-  admin:   { bg: 'rgba(248, 113, 113, 0.18)', color: '#fecaca', label: 'Admin' },
-  manager: { bg: 'rgba(129, 140, 248, 0.20)', color: '#c7d2fe', label: 'Manager' },
-  member:  { bg: 'rgba(255,255,255,0.10)',    color: 'rgba(255,255,255,0.75)', label: 'Member' },
+  admin: { bg: 'rgba(248, 113, 113, 0.18)', color: '#fecaca', label: 'Admin' },
+  user:  { bg: 'rgba(255,255,255,0.10)',    color: 'rgba(255,255,255,0.75)', label: 'User' },
 }
 
 function Sidebar({ active, onNavigate, onSignOut }: {
@@ -166,8 +165,8 @@ function SidebarUserCard(): React.JSX.Element {
   if (!settings) return <></>
 
   const displayName = settings.display_name?.trim() || settings.email || 'Signed in'
-  const role = settings.role ?? 'member'
-  const badge = SIDEBAR_ROLE_BADGE[role] ?? SIDEBAR_ROLE_BADGE.member
+  const role = settings.role ?? 'user'
+  const badge = SIDEBAR_ROLE_BADGE[role] ?? SIDEBAR_ROLE_BADGE.user
   const chapterName = cached && cached.forId === effectiveChapterId ? cached.name : null
   const chapterDisplay = effectiveChapterId
     ? (chapterName ?? '(loading…)')
