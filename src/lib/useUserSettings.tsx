@@ -44,6 +44,11 @@ interface UserSettingsContextValue {
   isAdmin: boolean
   isManager: boolean
   needsOnboarding: boolean
+  // True when the user has authenticated and (for non-admins) been assigned
+  // to a chapter, but hasn't filled in the post-invite profile form yet. The
+  // App router shows the ProfileCompletion screen while this is true.
+  needsProfileCompletion: boolean
+  profileCompleted: boolean
 
   chapterId: ID | null
   effectiveChapterId: ID | null
@@ -145,6 +150,10 @@ export function UserSettingsProvider({ children }: { children: ReactNode }): Rea
 
   const chapterId = settings?.chapter_id ?? null
   const needsOnboarding = !!settings && chapterId === null && !isAdmin
+  // profile_completed is non-nullable in the DB but treat a missing settings
+  // row as "still completing" to be conservative.
+  const profileCompleted = !!settings?.profile_completed
+  const needsProfileCompletion = !!settings && !profileCompleted
 
   // For non-admins the effective chapter is just their own. For admins it's
   // whatever they've selected in the switcher; null means "All Chapters".
@@ -171,13 +180,15 @@ export function UserSettingsProvider({ children }: { children: ReactNode }): Rea
     isAdmin,
     isManager,
     needsOnboarding,
+    needsProfileCompletion,
+    profileCompleted,
     chapterId,
     effectiveChapterId,
     adminViewChapterId,
     setAdminViewChapterId,
     applyChapterFilter,
     refresh
-  }), [settings, loading, error, role, isAdmin, isManager, needsOnboarding, chapterId, effectiveChapterId, adminViewChapterId, setAdminViewChapterId, applyChapterFilter, refresh])
+  }), [settings, loading, error, role, isAdmin, isManager, needsOnboarding, needsProfileCompletion, profileCompleted, chapterId, effectiveChapterId, adminViewChapterId, setAdminViewChapterId, applyChapterFilter, refresh])
 
   return (
     <UserSettingsContext.Provider value={value}>

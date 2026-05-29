@@ -5,6 +5,7 @@ import { useUserSettings } from './lib/useUserSettings'
 import type { Chapter, ID } from './lib/types'
 import Login from './pages/Login'
 import SetNewPassword from './pages/SetNewPassword'
+import ProfileCompletion from './pages/ProfileCompletion'
 import Dashboard from './pages/Dashboard'
 import Negotiations from './pages/Negotiations'
 import NegotiationDetail from './pages/NegotiationDetail'
@@ -37,6 +38,15 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'settings',     label: 'Settings' },
   { id: 'admin-users',  label: 'User Management', adminOnly: true }
 ]
+
+// Sidebar role badge palette. The sidebar is dark navy so we use translucent
+// pastels here rather than the page-level ROLE_COLORS that assume a white
+// background.
+const SIDEBAR_ROLE_BADGE: Record<string, { bg: string; color: string; label: string }> = {
+  admin:   { bg: 'rgba(248, 113, 113, 0.18)', color: '#fecaca', label: 'Admin' },
+  manager: { bg: 'rgba(129, 140, 248, 0.20)', color: '#c7d2fe', label: 'Manager' },
+  member:  { bg: 'rgba(255,255,255,0.10)',    color: 'rgba(255,255,255,0.75)', label: 'Member' },
+}
 
 function Sidebar({ active, onNavigate, onSignOut }: {
   active: Page
@@ -101,7 +111,8 @@ function Sidebar({ active, onNavigate, onSignOut }: {
         })}
       </nav>
 
-      <div style={{ padding: '20px', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+      <div style={{ padding: '14px 20px 18px', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+        <SidebarUserCard />
         <button
           onClick={onSignOut}
           onMouseEnter={() => setHoveredSignOut(true)}
@@ -113,11 +124,71 @@ function Sidebar({ active, onNavigate, onSignOut }: {
             border: 'none',
             cursor: 'pointer',
             padding: 0,
+            marginTop: '14px',
             transition: 'color 0.15s'
           }}
         >
           Sign Out
         </button>
+      </div>
+    </div>
+  )
+}
+
+// Compact identity card in the sidebar footer: display name (or email
+// fallback), role badge, and the chapter the user is currently scoped to.
+// For non-admins this is their assigned chapter; for admins it's whatever
+// the AdminChapterSwitcher has selected (or "All Chapters").
+function SidebarUserCard(): React.JSX.Element {
+  const { settings, isAdmin, effectiveChapterId } = useUserSettings()
+  // Cache the most recent fetch keyed by the chapter id it was for. Renderers
+  // only use `cached.name` when `cached.forId === effectiveChapterId`; that
+  // lets us avoid a setState-on-mismatch (which the React 19 lint rule
+  // disallows inside effect bodies).
+  const [cached, setCached] = useState<{ forId: ID; name: string | null } | null>(null)
+
+  useEffect(() => {
+    if (!effectiveChapterId) return
+    const targetId = effectiveChapterId
+    let cancelled = false
+    void supabase
+      .from('chapters')
+      .select('name')
+      .eq('id', targetId)
+      .single()
+      .then(({ data }) => {
+        if (cancelled) return
+        setCached({ forId: targetId, name: data?.name ?? null })
+      })
+    return () => { cancelled = true }
+  }, [effectiveChapterId])
+
+  if (!settings) return <></>
+
+  const displayName = settings.display_name?.trim() || settings.email || 'Signed in'
+  const role = settings.role ?? 'member'
+  const badge = SIDEBAR_ROLE_BADGE[role] ?? SIDEBAR_ROLE_BADGE.member
+  const chapterName = cached && cached.forId === effectiveChapterId ? cached.name : null
+  const chapterDisplay = effectiveChapterId
+    ? (chapterName ?? '(loading…)')
+    : (isAdmin ? 'All chapters' : 'No chapter assigned')
+
+  return (
+    <div>
+      <div style={{ fontSize: '13px', fontWeight: 600, color: '#fff', lineHeight: 1.3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={displayName}>
+        {displayName}
+      </div>
+      <div style={{ marginTop: '6px', display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+        <span style={{
+          fontSize: '10px', fontWeight: 600, padding: '2px 8px',
+          borderRadius: '20px', background: badge.bg, color: badge.color,
+          textTransform: 'uppercase', letterSpacing: '0.04em',
+        }}>
+          {badge.label}
+        </span>
+      </div>
+      <div style={{ marginTop: '6px', fontSize: '11px', color: 'rgba(255,255,255,0.55)', lineHeight: 1.3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={chapterDisplay}>
+        {chapterDisplay}
       </div>
     </div>
   )
@@ -257,7 +328,7 @@ export default function App(): React.JSX.Element {
   const initialCallback = authCallbackType()
   const [mustSetPassword, setMustSetPassword] = useState<boolean>(initialCallback !== null)
   const [callbackKind, setCallbackKind] = useState<'invite' | 'recovery' | null>(initialCallback)
-  const { loading: settingsLoading, error: settingsError, isAdmin, needsOnboarding } = useUserSettings()
+  const { loading: settingsLoading, error: settingsError, isAdmin, needsOnboarding, needsProfileCompletion } = useUserSettings()
 
   function handleNavigate(p: Page) {
     if (p !== 'negotiations') setSelectedNegotiationId(null)
@@ -345,6 +416,13 @@ export default function App(): React.JSX.Element {
         </div>
       </div>
     )
+  }
+
+  // First-time post-invite gate: collect display name, job title, contact
+  // info. Stays up until profile_completed flips true (or the user clicks
+  // "Skip for now"). Admins go through this too.
+  if (needsProfileCompletion) {
+    return <ProfileCompletion />
   }
 
   // Non-admin user without a chapter waits for assignment. Admins always

@@ -223,9 +223,19 @@ export interface UserSettings {
   user_id: ID
   chapter_id: ID | null
   display_name: string | null
+  email: string | null
+  phone: string | null
+  job_title: string | null
+  company_name: string | null
+  address_line1: string | null
+  address_line2: string | null
+  city: string | null
+  state: string | null
+  zip: string | null
   role: string | null
   theme: Theme | null
   notifications_enabled: boolean | null
+  profile_completed: boolean
   created_at: string
   updated_at: string
 }

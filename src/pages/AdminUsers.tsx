@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useUserSettings } from '../lib/useUserSettings'
 import { useToast } from '../lib/toast'
@@ -45,6 +45,9 @@ export default function AdminUsers(): React.JSX.Element {
 
   // Per-row save state for optimistic feedback.
   const [pendingUserId, setPendingUserId] = useState<ID | null>(null)
+
+  // Expanded row id (click a row to see all profile fields beneath it).
+  const [expandedUserId, setExpandedUserId] = useState<ID | null>(null)
 
   // New chapter form
   const [showChapterForm, setShowChapterForm] = useState(false)
@@ -94,7 +97,10 @@ export default function AdminUsers(): React.JSX.Element {
     return users.filter((u) => {
       if (roleFilter !== 'all' && u.role !== roleFilter) return false
       if (!term) return true
-      const hay = [u.display_name, u.user_id, u.chapters?.name].filter(Boolean).join(' ').toLowerCase()
+      const hay = [
+        u.display_name, u.email, u.user_id, u.chapters?.name,
+        u.job_title, u.company_name, u.phone,
+      ].filter(Boolean).join(' ').toLowerCase()
       return hay.includes(term)
     })
   }, [users, roleFilter, search])
@@ -373,7 +379,7 @@ export default function AdminUsers(): React.JSX.Element {
       <div style={{ display: 'flex', gap: '10px', marginBottom: '14px', flexWrap: 'wrap', alignItems: 'center' }}>
         <input
           style={{ ...inputStyle, maxWidth: '320px' }}
-          placeholder="Search by name, user ID, or chapter…"
+          placeholder="Search by name, email, job title, company, chapter…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           aria-label="Search users"
@@ -407,8 +413,10 @@ export default function AdminUsers(): React.JSX.Element {
             <thead>
               <tr>
                 <th style={thStyle} scope="col">User</th>
+                <th style={thStyle} scope="col">Title / Company</th>
                 <th style={thStyle} scope="col">Role</th>
                 <th style={thStyle} scope="col">Chapter</th>
+                <th style={thStyle} scope="col">Profile</th>
                 <th style={thStyle} scope="col">Created</th>
               </tr>
             </thead>
@@ -417,56 +425,80 @@ export default function AdminUsers(): React.JSX.Element {
                 const isPending = pendingUserId === u.user_id
                 const isSelf = mySettings?.user_id === u.user_id
                 const rc = u.role ? ROLE_COLORS[u.role as Role] : ROLE_COLORS.member
+                const isExpanded = expandedUserId === u.user_id
                 return (
-                  <tr key={u.user_id} style={{ opacity: isPending ? 0.6 : 1 }}>
-                    <td style={tdStyle}>
-                      <div style={{ fontWeight: 600, color: '#0F172A' }}>
-                        {u.display_name || <span style={{ color: '#94A3B8', fontWeight: 400, fontStyle: 'italic' }}>(no display name)</span>}
-                        {isSelf && <span style={{ marginLeft: '6px', fontSize: '11px', color: '#1E3A8A', fontWeight: 500 }}>(you)</span>}
-                      </div>
-                      <div style={{ fontSize: '11px', color: '#94A3B8', marginTop: '2px', fontFamily: 'ui-monospace, SFMono-Regular, Consolas, monospace' }}>
-                        {u.user_id}
-                      </div>
-                    </td>
-                    <td style={tdStyle}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <span style={{ fontSize: '11px', fontWeight: 600, padding: '2px 8px', borderRadius: '20px', background: rc.bg, color: rc.color, textTransform: 'capitalize' }}>
-                          {u.role ?? 'member'}
+                  <React.Fragment key={u.user_id}>
+                    <tr
+                      style={{ opacity: isPending ? 0.6 : 1, cursor: 'pointer', background: isExpanded ? '#F8FAFC' : 'transparent' }}
+                      onClick={() => setExpandedUserId(isExpanded ? null : u.user_id)}
+                    >
+                      <td style={tdStyle}>
+                        <div style={{ fontWeight: 600, color: '#0F172A' }}>
+                          {u.display_name || <span style={{ color: '#94A3B8', fontWeight: 400, fontStyle: 'italic' }}>(no display name)</span>}
+                          {isSelf && <span style={{ marginLeft: '6px', fontSize: '11px', color: '#1E3A8A', fontWeight: 500 }}>(you)</span>}
+                        </div>
+                        <div style={{ fontSize: '12px', color: '#64748B', marginTop: '2px' }}>
+                          {u.email ?? <span style={{ fontStyle: 'italic', color: '#CBD5E1' }}>(no email)</span>}
+                        </div>
+                      </td>
+                      <td style={tdStyle}>
+                        <div style={{ fontSize: '13px', color: '#0F172A' }}>{u.job_title ?? <span style={{ color: '#CBD5E1' }}>—</span>}</div>
+                        <div style={{ fontSize: '11px', color: '#64748B', marginTop: '2px' }}>{u.company_name ?? ''}</div>
+                      </td>
+                      <td style={tdStyle} onClick={(e) => e.stopPropagation()}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <span style={{ fontSize: '11px', fontWeight: 600, padding: '2px 8px', borderRadius: '20px', background: rc.bg, color: rc.color, textTransform: 'capitalize' }}>
+                            {u.role ?? 'member'}
+                          </span>
+                          <select
+                            value={u.role ?? 'member'}
+                            disabled={isPending}
+                            onChange={(e) => updateUser(u.user_id, { role: e.target.value as Role })}
+                            style={{ ...inputStyle, width: 'auto', fontSize: '12px', padding: '4px 8px' }}
+                            aria-label={`Change role for ${u.display_name ?? u.user_id}`}
+                          >
+                            {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
+                          </select>
+                        </div>
+                      </td>
+                      <td style={tdStyle} onClick={(e) => e.stopPropagation()}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <span style={{ fontSize: '13px', color: u.chapter_id ? '#0F172A' : '#CBD5E1' }}>
+                            {u.chapters?.name ?? (u.chapter_id ? '(deleted chapter)' : 'Unassigned')}
+                          </span>
+                          <select
+                            value={u.chapter_id ?? ''}
+                            disabled={isPending}
+                            onChange={(e) => updateUser(u.user_id, { chapter_id: e.target.value ? (e.target.value as ID) : null })}
+                            style={{ ...inputStyle, width: 'auto', fontSize: '12px', padding: '4px 8px' }}
+                            aria-label={`Change chapter for ${u.display_name ?? u.user_id}`}
+                          >
+                            <option value="">— Unassigned —</option>
+                            {chapters.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                          </select>
+                        </div>
+                      </td>
+                      <td style={tdStyle}>
+                        {u.profile_completed ? (
+                          <span style={{ fontSize: '11px', fontWeight: 600, padding: '2px 8px', borderRadius: '20px', background: '#ECFDF5', color: '#047857' }}>Complete</span>
+                        ) : (
+                          <span style={{ fontSize: '11px', fontWeight: 600, padding: '2px 8px', borderRadius: '20px', background: '#FEF3C7', color: '#92400E' }}>Pending</span>
+                        )}
+                      </td>
+                      <td style={tdStyle}>
+                        <span style={{ fontSize: '12px', color: '#64748B' }}>
+                          {formatDate(u.created_at.slice(0, 10))}
                         </span>
-                        <select
-                          value={u.role ?? 'member'}
-                          disabled={isPending}
-                          onChange={(e) => updateUser(u.user_id, { role: e.target.value as Role })}
-                          style={{ ...inputStyle, width: 'auto', fontSize: '12px', padding: '4px 8px' }}
-                          aria-label={`Change role for ${u.display_name ?? u.user_id}`}
-                        >
-                          {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
-                        </select>
-                      </div>
-                    </td>
-                    <td style={tdStyle}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <span style={{ fontSize: '13px', color: u.chapter_id ? '#0F172A' : '#CBD5E1' }}>
-                          {u.chapters?.name ?? (u.chapter_id ? '(deleted chapter)' : 'Unassigned')}
-                        </span>
-                        <select
-                          value={u.chapter_id ?? ''}
-                          disabled={isPending}
-                          onChange={(e) => updateUser(u.user_id, { chapter_id: e.target.value ? (e.target.value as ID) : null })}
-                          style={{ ...inputStyle, width: 'auto', fontSize: '12px', padding: '4px 8px' }}
-                          aria-label={`Change chapter for ${u.display_name ?? u.user_id}`}
-                        >
-                          <option value="">— Unassigned —</option>
-                          {chapters.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-                        </select>
-                      </div>
-                    </td>
-                    <td style={tdStyle}>
-                      <span style={{ fontSize: '12px', color: '#64748B' }}>
-                        {formatDate(u.created_at.slice(0, 10))}
-                      </span>
-                    </td>
-                  </tr>
+                      </td>
+                    </tr>
+                    {isExpanded && (
+                      <tr style={{ background: '#F8FAFC' }}>
+                        <td colSpan={6} style={{ padding: '16px 24px', borderBottom: '1px solid #F1F5F9' }}>
+                          <UserDetail user={u} />
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
                 )
               })}
             </tbody>
@@ -475,10 +507,33 @@ export default function AdminUsers(): React.JSX.Element {
       </div>
 
       <div style={{ marginTop: '16px', fontSize: '12px', color: '#94A3B8', lineHeight: 1.6 }}>
-        Email addresses live in the auth system and aren't readable from the client. Users identify
-        themselves by setting a display name under Settings → General. Until they do, the user ID is
-        shown so you can match an account to an email out-of-band.
+        Click any row to see the user's full profile — phone, address, and remaining contact fields.
+        Role and chapter remain editable from the row itself.
       </div>
+    </div>
+  )
+}
+
+// Expanded detail block shown below a row when the admin clicks into it.
+// Read-only on purpose — admin edits today are scoped to role + chapter; the
+// rest of the profile is user-owned.
+function UserDetail({ user }: { user: UserRow }): React.JSX.Element {
+  const lines: Array<[string, string | null]> = [
+    ['Phone',     user.phone],
+    ['Address 1', user.address_line1],
+    ['Address 2', user.address_line2],
+    ['City',      user.city],
+    ['State',     user.state],
+    ['ZIP',       user.zip],
+  ]
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '12px 24px' }}>
+      {lines.map(([label, value]) => (
+        <div key={label}>
+          <div style={{ fontSize: '10px', fontWeight: 600, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '2px' }}>{label}</div>
+          <div style={{ fontSize: '13px', color: value ? '#0F172A' : '#CBD5E1' }}>{value || '—'}</div>
+        </div>
+      ))}
     </div>
   )
 }

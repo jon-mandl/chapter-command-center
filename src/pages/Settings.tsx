@@ -3,19 +3,32 @@ import { supabase } from '../lib/supabase'
 import { useUserSettings } from '../lib/useUserSettings'
 import { useToast } from '../lib/toast'
 import { describeError } from '../lib/errors'
-import { inputStyle, labelStyle, btnPrimary, btnSecondary, errorBox } from '../lib/ui'
+import { inputStyle, labelStyle, btnPrimary, errorBox } from '../lib/ui'
+import { US_STATES } from '../lib/usStates'
 
-type SettingsTab = 'general' | 'profile' | 'security'
+type SettingsTab = 'profile' | 'account' | 'security'
 
 const TABS: { id: SettingsTab; label: string }[] = [
-  { id: 'general',  label: 'Chapter' },
   { id: 'profile',  label: 'Profile' },
-  { id: 'security', label: 'Security' }
+  { id: 'account',  label: 'Account Info' },
+  { id: 'security', label: 'Security' },
 ]
+
+const ROLE_LABEL: Record<string, string> = {
+  admin:   'Admin',
+  manager: 'Manager',
+  member:  'Member',
+}
+
+const ROLE_COLOR: Record<string, { bg: string; color: string }> = {
+  admin:   { bg: '#fef2f2', color: '#b91c1c' },
+  manager: { bg: '#EEF2FF', color: '#4F46E5' },
+  member:  { bg: '#F8FAFC', color: '#64748B' },
+}
 
 function Section({ title, children }: { title: string; children: React.ReactNode }): React.JSX.Element {
   return (
-    <div style={{ background: '#fff', border: '1px solid #E2E8F0', borderRadius: '8px', padding: '24px', marginBottom: '20px', maxWidth: '600px' }}>
+    <div style={{ background: '#fff', border: '1px solid #E2E8F0', borderRadius: '8px', padding: '24px', marginBottom: '20px', maxWidth: '720px' }}>
       <div style={{ fontSize: '14px', fontWeight: 700, color: '#0F172A', marginBottom: '20px', paddingBottom: '12px', borderBottom: '1px solid #F1F5F9' }}>
         {title}
       </div>
@@ -24,108 +37,61 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   )
 }
 
-function GeneralTab({ chapterId }: { chapterId: string }): React.JSX.Element {
-  const toast = useToast()
-  const [chapterName, setChapterName] = useState('')
-  const [draft, setDraft] = useState('')
-  const [loading, setLoading] = useState(true)
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState('')
-
-  useEffect(() => {
-    let cancelled = false
-    void supabase
-      .from('chapters')
-      .select('name')
-      .eq('id', chapterId)
-      .single()
-      .then(({ data, error: err }) => {
-        if (cancelled) return
-        if (err || !data) {
-          setError(describeError(err, 'Could not load chapter.'))
-        } else {
-          setChapterName(data.name)
-          setDraft(data.name)
-        }
-        setLoading(false)
-      })
-    return () => { cancelled = true }
-  }, [chapterId])
-
-  async function handleSave(): Promise<void> {
-    const trimmed = draft.trim()
-    if (!trimmed) { setError('Chapter name cannot be empty.'); return }
-    setSaving(true)
-    setError('')
-    const { error: err } = await supabase.from('chapters').update({ name: trimmed }).eq('id', chapterId)
-    setSaving(false)
-    if (err) {
-      const msg = describeError(err, 'Could not save.')
-      setError(msg)
-      toast.error(msg)
-      return
-    }
-    setChapterName(trimmed)
-    toast.success('Chapter name updated.')
-  }
-
-  if (loading) return <div style={{ fontSize: '13px', color: '#64748B' }}>Loading…</div>
-
-  const isDirty = draft.trim() !== chapterName
-
-  return (
-    <Section title="Chapter">
-      <div style={{ marginBottom: '16px' }}>
-        <label style={labelStyle}>Chapter Name</label>
-        <input
-          style={inputStyle}
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          placeholder="e.g. NECA Chapter 51"
-          maxLength={120}
-        />
-      </div>
-      {error && <div style={errorBox}>{error}</div>}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-        <button
-          onClick={handleSave}
-          disabled={!isDirty || saving}
-          style={{ ...btnPrimary, opacity: !isDirty || saving ? 0.5 : 1 }}
-        >
-          {saving ? 'Saving…' : 'Save'}
-        </button>
-        {isDirty && !saving && (
-          <button onClick={() => setDraft(chapterName)} style={btnSecondary}>Cancel</button>
-        )}
-      </div>
-    </Section>
-  )
-}
-
+// ─── Profile tab ───────────────────────────────────────────────────────────
+// Editable subset of user_settings — the contact/identity fields the user
+// owns. Admin-controlled fields (chapter_id, role, email) are read-only and
+// live on the Account Info tab.
 function ProfileTab(): React.JSX.Element {
   const { settings, refresh } = useUserSettings()
   const toast = useToast()
-  const [draft, setDraft] = useState(settings?.display_name ?? '')
+
+  const [displayName, setDisplayName]   = useState(settings?.display_name ?? '')
+  const [jobTitle, setJobTitle]         = useState(settings?.job_title ?? '')
+  const [companyName, setCompanyName]   = useState(settings?.company_name ?? '')
+  const [phone, setPhone]               = useState(settings?.phone ?? '')
+  const [addressLine1, setAddressLine1] = useState(settings?.address_line1 ?? '')
+  const [addressLine2, setAddressLine2] = useState(settings?.address_line2 ?? '')
+  const [city, setCity]                 = useState(settings?.city ?? '')
+  const [stateCode, setStateCode]       = useState(settings?.state ?? '')
+  const [zip, setZip]                   = useState(settings?.zip ?? '')
+
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
   if (!settings) return <div style={{ fontSize: '13px', color: '#64748B' }}>Loading…</div>
 
-  const current = settings.display_name ?? ''
-  const isDirty = draft.trim() !== current.trim()
+  const isDirty =
+    (displayName.trim()  !== (settings.display_name  ?? '')) ||
+    (jobTitle.trim()     !== (settings.job_title     ?? '')) ||
+    (companyName.trim()  !== (settings.company_name  ?? '')) ||
+    (phone.trim()        !== (settings.phone         ?? '')) ||
+    (addressLine1.trim() !== (settings.address_line1 ?? '')) ||
+    (addressLine2.trim() !== (settings.address_line2 ?? '')) ||
+    (city.trim()         !== (settings.city          ?? '')) ||
+    (stateCode           !== (settings.state         ?? '')) ||
+    (zip.trim()          !== (settings.zip           ?? ''))
 
   async function handleSave(): Promise<void> {
     if (!settings) return
     setError('')
     setSaving(true)
-    const trimmed = draft.trim() || null
     const { error: err } = await supabase
       .from('user_settings')
-      .update({ display_name: trimmed })
+      .update({
+        display_name:  displayName.trim() || null,
+        job_title:     jobTitle.trim() || null,
+        company_name:  companyName.trim() || null,
+        phone:         phone.trim() || null,
+        address_line1: addressLine1.trim() || null,
+        address_line2: addressLine2.trim() || null,
+        city:          city.trim() || null,
+        state:         stateCode || null,
+        zip:           zip.trim() || null,
+      })
       .eq('user_id', settings.user_id)
     setSaving(false)
     if (err) {
-      const msg = describeError(err, 'Could not save.')
+      const msg = describeError(err, 'Could not save your profile.')
       setError(msg)
       toast.error(msg)
       return
@@ -135,38 +101,114 @@ function ProfileTab(): React.JSX.Element {
   }
 
   return (
-    <Section title="Your Profile">
-      <div style={{ marginBottom: '16px' }}>
-        <label style={labelStyle}>Display Name</label>
-        <input
-          style={inputStyle}
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          placeholder="How your name appears to administrators"
-          maxLength={120}
-        />
-        <div style={{ fontSize: '11px', color: '#94A3B8', marginTop: '6px' }}>
-          Email addresses aren't visible inside the app, so administrators identify you by this
-          display name. Pick something easy to recognise.
+    <>
+      <Section title="Identity">
+        <Field label="Display Name">
+          <input style={inputStyle} value={displayName} onChange={(e) => setDisplayName(e.target.value)} maxLength={120} />
+        </Field>
+        <Field label="Job Title">
+          <input style={inputStyle} value={jobTitle} onChange={(e) => setJobTitle(e.target.value)} placeholder="e.g. Chapter Manager" maxLength={120} />
+        </Field>
+        <Field label="Company / Organization">
+          <input style={inputStyle} value={companyName} onChange={(e) => setCompanyName(e.target.value)} placeholder="e.g. NECA or your contractor name" maxLength={160} />
+        </Field>
+      </Section>
+
+      <Section title="Contact">
+        <Field label="Phone">
+          <input style={inputStyle} value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="(555) 555-1212" autoComplete="tel" />
+        </Field>
+        <Field label="Address Line 1">
+          <input style={inputStyle} value={addressLine1} onChange={(e) => setAddressLine1(e.target.value)} autoComplete="address-line1" />
+        </Field>
+        <Field label="Address Line 2">
+          <input style={inputStyle} value={addressLine2} onChange={(e) => setAddressLine2(e.target.value)} autoComplete="address-line2" />
+        </Field>
+        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: '12px' }}>
+          <Field label="City">
+            <input style={inputStyle} value={city} onChange={(e) => setCity(e.target.value)} autoComplete="address-level2" />
+          </Field>
+          <Field label="State">
+            <select style={inputStyle} value={stateCode} onChange={(e) => setStateCode(e.target.value)} autoComplete="address-level1">
+              <option value="">—</option>
+              {US_STATES.map((s) => (
+                <option key={s.code} value={s.code}>{s.code} — {s.name}</option>
+              ))}
+            </select>
+          </Field>
+          <Field label="ZIP">
+            <input style={inputStyle} value={zip} onChange={(e) => setZip(e.target.value)} autoComplete="postal-code" maxLength={10} />
+          </Field>
         </div>
+
+        {error && <div style={errorBox}>{error}</div>}
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '8px' }}>
+          <button onClick={handleSave} disabled={!isDirty || saving} style={{ ...btnPrimary, opacity: !isDirty || saving ? 0.5 : 1 }}>
+            {saving ? 'Saving…' : 'Save Changes'}
+          </button>
+        </div>
+      </Section>
+    </>
+  )
+}
+
+// ─── Account Info tab ──────────────────────────────────────────────────────
+// Read-only: email comes from auth, chapter + role are set by an admin.
+function AccountInfoTab(): React.JSX.Element {
+  const { settings } = useUserSettings()
+  // Cache the fetched chapter keyed by id so we don't have to clear via
+  // setState in the early-return branch (React 19's set-state-in-effect rule).
+  const [cachedChapter, setCachedChapter] = useState<{ forId: string; name: string | null } | null>(null)
+
+  useEffect(() => {
+    if (!settings?.chapter_id) return
+    const targetId = settings.chapter_id
+    let cancelled = false
+    void supabase
+      .from('chapters')
+      .select('name')
+      .eq('id', targetId)
+      .single()
+      .then(({ data }) => {
+        if (cancelled) return
+        setCachedChapter({ forId: targetId, name: data?.name ?? null })
+      })
+    return () => { cancelled = true }
+  }, [settings?.chapter_id])
+  const chapterName = settings?.chapter_id && cachedChapter?.forId === settings.chapter_id
+    ? cachedChapter.name
+    : null
+
+  if (!settings) return <div style={{ fontSize: '13px', color: '#64748B' }}>Loading…</div>
+
+  const role = settings.role ?? 'member'
+  const roleLabel = ROLE_LABEL[role] ?? role
+  const roleColor = ROLE_COLOR[role] ?? ROLE_COLOR.member
+
+  return (
+    <Section title="Account Info">
+      <div style={{ fontSize: '12px', color: '#94A3B8', marginBottom: '16px', lineHeight: 1.5 }}>
+        These fields are managed by your administrator. Reach out to your chapter admin if anything
+        needs to change.
       </div>
-      {error && <div style={errorBox}>{error}</div>}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-        <button
-          onClick={handleSave}
-          disabled={!isDirty || saving}
-          style={{ ...btnPrimary, opacity: !isDirty || saving ? 0.5 : 1 }}
-        >
-          {saving ? 'Saving…' : 'Save'}
-        </button>
-        {isDirty && !saving && (
-          <button onClick={() => setDraft(current)} style={btnSecondary}>Cancel</button>
-        )}
+
+      <ReadOnlyField label="Email" value={settings.email ?? '—'} />
+      <ReadOnlyField label="Chapter" value={chapterName ?? (settings.chapter_id ? '(unknown)' : 'Unassigned')} />
+
+      <div style={{ marginBottom: '14px' }}>
+        <label style={labelStyle}>Role</label>
+        <div>
+          <span style={{ display: 'inline-block', fontSize: '11px', fontWeight: 600, padding: '4px 10px', borderRadius: '20px', background: roleColor.bg, color: roleColor.color, textTransform: 'capitalize' }}>
+            {roleLabel}
+          </span>
+        </div>
       </div>
     </Section>
   )
 }
 
+// ─── Security tab ──────────────────────────────────────────────────────────
 function SecurityTab(): React.JSX.Element {
   const toast = useToast()
   const [currentPassword, setCurrentPassword] = useState('')
@@ -254,20 +296,17 @@ function SecurityTab(): React.JSX.Element {
 }
 
 export default function Settings(): React.JSX.Element {
-  // Chapter edit on this page edits the *effective* chapter — i.e. whatever the
-  // admin chapter switcher has selected, or the user's own chapter for
-  // non-admins. Admins on "All Chapters" don't see the chapter tab.
-  const { effectiveChapterId, isAdmin, loading: chapterLoading } = useUserSettings()
-  const [activeTab, setActiveTab] = useState<SettingsTab>('general')
+  const { loading } = useUserSettings()
+  const [activeTab, setActiveTab] = useState<SettingsTab>('profile')
 
-  if (chapterLoading) {
+  if (loading) {
     return <div style={{ padding: '32px', fontSize: '13px', color: '#64748B' }}>Loading…</div>
   }
 
   return (
     <div style={{ padding: '28px 32px' }}>
       <h1 style={{ fontSize: '26px', fontWeight: 700, color: '#0F172A', margin: 0 }}>Settings</h1>
-      <p style={{ fontSize: '13px', color: '#64748B', margin: '6px 0 24px' }}>Manage your chapter and account settings.</p>
+      <p style={{ fontSize: '13px', color: '#64748B', margin: '6px 0 24px' }}>Manage your profile and account.</p>
 
       <div style={{ display: 'flex', borderBottom: '1px solid #E2E8F0', marginBottom: '28px' }}>
         {TABS.map((t) => (
@@ -292,21 +331,35 @@ export default function Settings(): React.JSX.Element {
         ))}
       </div>
 
-      {activeTab === 'general' && (
-        effectiveChapterId ? (
-          <GeneralTab chapterId={effectiveChapterId} />
-        ) : (
-          <Section title="Chapter">
-            <div style={{ fontSize: '13px', color: '#64748B', lineHeight: 1.6 }}>
-              {isAdmin
-                ? 'Select a specific chapter from the sidebar to edit its name here.'
-                : 'You are not yet assigned to a chapter.'}
-            </div>
-          </Section>
-        )
-      )}
       {activeTab === 'profile'  && <ProfileTab />}
+      {activeTab === 'account'  && <AccountInfoTab />}
       {activeTab === 'security' && <SecurityTab />}
     </div>
   )
 }
+
+// ─── helpers ───────────────────────────────────────────────────────────────
+function Field({ label, children }: { label: string; children: React.ReactNode }): React.JSX.Element {
+  return (
+    <div style={{ marginBottom: '14px' }}>
+      <label style={labelStyle}>{label}</label>
+      {children}
+    </div>
+  )
+}
+
+function ReadOnlyField({ label, value }: { label: string; value: string }): React.JSX.Element {
+  return (
+    <div style={{ marginBottom: '14px' }}>
+      <label style={labelStyle}>{label}</label>
+      <div style={{
+        fontSize: '14px', color: '#0F172A',
+        padding: '8px 10px', background: '#F8FAFC',
+        border: '1px solid #E2E8F0', borderRadius: '6px',
+      }}>
+        {value}
+      </div>
+    </div>
+  )
+}
+
