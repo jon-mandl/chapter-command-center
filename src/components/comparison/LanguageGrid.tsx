@@ -1,5 +1,7 @@
 // LanguageGrid — "Contract Language" tab of the Comparison Sheet.
-// Shows one card per Language proposal with three columns of clause text.
+// Reads current_text / union_change / union_text / mgmt_change / mgmt_text
+// directly from the proposals table. Falls back to proposal_positions text
+// for proposals created before the schema upgrade.
 import React, { useState, useEffect } from 'react'
 import type { Proposal, ProposalPosition, NegotiationSession } from '../../lib/types'
 import { COLS, toSheetStatus, type SheetStatus } from '../../lib/comparison-utils'
@@ -10,12 +12,13 @@ import { PriorityFlag, StatusPill, type FilterValue } from './primitives'
 interface LangRow {
   proposal: Proposal
   sheetStatus: SheetStatus
-  currentText: string | null          // proposal.current_language
-  unionText: string | null            // latest Labor position_text
-  unionChanged: boolean               // any Labor position exists
-  mgmtText: string | null             // latest Management position_text
-  mgmtChanged: boolean                // any Management position exists
-  lastSessionDate: string | null
+  currentText: string | null
+  unionText: string | null
+  unionChanged: boolean
+  mgmtText: string | null
+  mgmtChanged: boolean
+  rationale: string | null
+  movement: string | null
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -28,10 +31,37 @@ function buildLangRows(
   return proposals
     .filter((p) => p.category === 'Language')
     .map((p) => {
+      // Use new direct fields when present
+      const hasDirectData = p.union_change !== undefined || p.mgmt_change !== undefined || p.current_text !== undefined
+
+      if (hasDirectData && (p.current_text != null || p.union_text != null || p.mgmt_text != null || p.union_change || p.mgmt_change)) {
+        const movement = p.last_movement ?? (() => {
+          const allPos = positions[p.id] ?? []
+          const allSorted = [...allPos].sort((a, b) => b.position_date.localeCompare(a.position_date))
+          const lastPos = allSorted[0] ?? null
+          const lastSession = lastPos?.session_id ? sessions.find((s) => s.id === lastPos.session_id) : null
+          return lastSession
+            ? `Last movement: ${new Date(lastSession.session_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
+            : null
+        })()
+
+        return {
+          proposal: p,
+          sheetStatus: toSheetStatus(p.status),
+          currentText: p.current_text,
+          unionText: p.union_text,
+          unionChanged: p.union_change,
+          mgmtText: p.mgmt_text,
+          mgmtChanged: p.mgmt_change,
+          rationale: p.rationale ?? p.notes,
+          movement,
+        }
+      }
+
+      // Legacy fallback: derive from proposal_positions and current_language
       const allPos = positions[p.id] ?? []
       const mgmtPos = allPos.filter((x) => x.side === 'Management').sort((a, b) => b.position_date.localeCompare(a.position_date))
       const laborPos = allPos.filter((x) => x.side === 'Labor').sort((a, b) => b.position_date.localeCompare(a.position_date))
-
       const allSorted = [...allPos].sort((a, b) => b.position_date.localeCompare(a.position_date))
       const lastPos = allSorted[0] ?? null
       const lastSession = lastPos?.session_id ? sessions.find((s) => s.id === lastPos.session_id) : null
@@ -44,12 +74,14 @@ function buildLangRows(
         unionChanged: laborPos.length > 0,
         mgmtText: mgmtPos[0]?.position_text ?? null,
         mgmtChanged: mgmtPos.length > 0,
-        lastSessionDate: lastSession?.session_date ?? null,
+        rationale: p.notes,
+        movement: lastSession
+          ? `Last movement: ${new Date(lastSession.session_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
+          : null,
       }
     })
 }
 
-// Group by article_reference
 function groupByArticle(rows: LangRow[]): { article: string; rows: LangRow[] }[] {
   const map = new Map<string, LangRow[]>()
   rows.forEach((r) => {
@@ -136,14 +168,19 @@ export default function LanguageGrid({ proposals, positions, sessions, filter, o
 
   const langProposals = proposals.filter((p) => p.category === 'Language')
 
+  // Only load positions for legacy rows (those without direct lang fields)
   useEffect(() => {
-    langProposals.forEach((p) => { onLoadPositions(p.id) })
+    langProposals
+      .filter((p) => p.current_text == null && p.union_text == null && p.mgmt_text == null && !p.union_change && !p.mgmt_change)
+      .forEach((p) => { onLoadPositions(p.id) })
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [proposals])
 
   const allRows = buildLangRows(langProposals, positions, sessions)
   const passFilter = (r: LangRow) => filter === 'all' || r.sheetStatus === filter
   const groups = groupByArticle(allRows)
+
+  const hasAnyVisible = groups.some(({ rows }) => rows.some(passFilter))
 
   return (
     <div style={{ padding: '18px 28px 32px' }}>
@@ -161,10 +198,6 @@ export default function LanguageGrid({ proposals, positions, sessions, filter, o
             {filtered.map((row) => {
               const { proposal: p } = row
               const isOpen = openCard === p.id
-
-              const movement = row.lastSessionDate
-                ? `Last movement: ${new Date(row.lastSessionDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
-                : null
 
               return (
                 <div
@@ -186,7 +219,11 @@ export default function LanguageGrid({ proposals, positions, sessions, filter, o
                     <div style={{ display: 'flex', alignItems: 'center', gap: 9, minWidth: 0 }}>
                       {p.priority && <PriorityFlag />}
                       <span style={{ fontSize: 14, fontWeight: 700, color: '#0F172A' }}>{p.title}</span>
-                      {p.article_reference && <span style={{ fontSize: 11, color: '#94A3B8' }}>§ {p.article_reference}</span>}
+                      {p.article_reference && (
+                        <span style={{ fontSize: 11, color: '#94A3B8' }}>
+                          {p.section ? `§ ${p.section}` : p.article_reference}
+                        </span>
+                      )}
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
                       <StatusPill status={row.sheetStatus} />
@@ -206,12 +243,12 @@ export default function LanguageGrid({ proposals, positions, sessions, filter, o
                     <div style={{ display: 'flex', gap: 28, padding: '14px 16px', borderTop: '1px solid #E2E8F0', background: '#FBFCFE' }}>
                       <div style={{ flex: 1 }}>
                         <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#94A3B8', marginBottom: 5 }}>Drafting note</div>
-                        <p style={{ fontSize: 13, color: '#334155', lineHeight: 1.5, margin: 0 }}>{p.notes || '—'}</p>
+                        <p style={{ fontSize: 13, color: '#334155', lineHeight: 1.5, margin: 0 }}>{row.rationale || '—'}</p>
                       </div>
-                      {movement && (
+                      {row.movement && (
                         <div style={{ width: 260, flexShrink: 0 }}>
                           <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#94A3B8', marginBottom: 5 }}>Last movement</div>
-                          <p style={{ fontSize: 13, color: '#334155', lineHeight: 1.5, margin: 0 }}>{movement}</p>
+                          <p style={{ fontSize: 13, color: '#334155', lineHeight: 1.5, margin: 0 }}>{row.movement}</p>
                         </div>
                       )}
                     </div>
@@ -223,9 +260,16 @@ export default function LanguageGrid({ proposals, positions, sessions, filter, o
         )
       })}
 
-      {groups.every(({ rows }) => !rows.filter((r) => filter === 'all' || r.sheetStatus === filter).length) && (
-        <div style={{ textAlign: 'center', padding: '48px 24px', fontSize: 13, color: '#94A3B8' }}>
-          No language provisions match this filter.
+      {!hasAnyVisible && (
+        <div style={{ textAlign: 'center', padding: '48px 24px' }}>
+          <div style={{ fontSize: 13, color: '#94A3B8', marginBottom: 8 }}>
+            {langProposals.length === 0
+              ? 'No language provisions yet.'
+              : 'No language provisions match this filter.'}
+          </div>
+          {langProposals.length === 0 && (
+            <div style={{ fontSize: 12, color: '#CBD5E1' }}>Add proposals on the Proposals tab to see them compared here.</div>
+          )}
         </div>
       )}
     </div>

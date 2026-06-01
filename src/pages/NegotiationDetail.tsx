@@ -41,6 +41,20 @@ const PROPOSAL_STATUS_COLORS: Record<ProposalStatus, { bg: string; color: string
   Rejected:  { bg: '#fef2f2', color: '#dc2626', border: '#fecaca' }
 }
 
+const UNIT_OPTIONS = ['$/hr', '$/day', '%', 'hrs/day', 'miles', 'ratio'] as const
+type UnitOption = typeof UNIT_OPTIONS[number]
+
+function unitToFormat(unit: UnitOption): string {
+  switch (unit) {
+    case '$/hr':    return 'usd'
+    case '$/day':   return 'usdDay'
+    case '%':       return 'pct'
+    case 'hrs/day': return 'hrs'
+    case 'miles':   return 'mi'
+    case 'ratio':   return 'ratio'
+  }
+}
+
 // ─── NegotiationDetail ────────────────────────────────────────────────────────
 
 export default function NegotiationDetail({ negotiationId, onBack }: {
@@ -59,8 +73,6 @@ export default function NegotiationDetail({ negotiationId, onBack }: {
     let cancelled = false
 
     void Promise.all([
-      // The cycle is identified by its own UUID; RLS scopes it to the right
-      // chapter automatically. Admins see across chapters.
       supabase.from('negotiation_cycles').select('*').eq('id', negotiationId).single(),
       applyChapterFilter(supabase.from('local_unions').select('*').order('local_number'))
     ]).then(([cycleRes, unionsRes]: [{ data: unknown; error: unknown }, { data: unknown; error: unknown }]) => {
@@ -136,7 +148,7 @@ export default function NegotiationDetail({ negotiationId, onBack }: {
       </div>
 
       <div style={{ flex: 1, overflowY: 'auto', background: '#F8FAFC' }}>
-        {activeTab === 'overview'   && <OverviewTab cycle={cycle} unions={unions} onUpdate={setCycle} toastError={toast.error} toastSuccess={toast.success} />}
+        {activeTab === 'overview'   && <OverviewTab cycle={cycle} unions={unions} onUpdate={setCycle} toastError={toast.error} toastSuccess={toast.success} onTabChange={setActiveTab} />}
         {activeTab === 'sessions'   && <SessionsTab cycleId={cycle.id} isLocked={isLocked} />}
         {activeTab === 'proposals'  && <ProposalsTab cycleId={cycle.id} isLocked={isLocked} />}
         {activeTab === 'comparison' && <ComparisonSheet cycle={cycle} union={unions.find((u) => u.id === cycle.local_union_id) ?? null} />}
@@ -147,25 +159,79 @@ export default function NegotiationDetail({ negotiationId, onBack }: {
 
 // ─── Overview Tab ─────────────────────────────────────────────────────────────
 
-function OverviewTab({ cycle, unions, onUpdate, toastError, toastSuccess }: {
+function EyebrowLabel({ children }: { children: React.ReactNode }): React.JSX.Element {
+  return <div style={{ fontSize: '11px', fontWeight: 700, color: '#64748B', textTransform: 'uppercase' as const, letterSpacing: '0.06em', marginBottom: '4px' }}>{children}</div>
+}
+
+function MetaField({ label, value, onClick }: { label: string; value: string | null; onClick?: () => void }): React.JSX.Element {
+  return (
+    <div>
+      <EyebrowLabel>{label}</EyebrowLabel>
+      {onClick ? (
+        <button
+          onClick={onClick}
+          style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontSize: '14px', fontWeight: 600, color: '#1E3A8A', textDecoration: 'underline', textUnderlineOffset: '2px' }}
+        >
+          {value || '—'}
+        </button>
+      ) : (
+        <div style={{ fontSize: '14px', fontWeight: 600, color: value ? '#0F172A' : '#CBD5E1' }}>{value || '—'}</div>
+      )}
+    </div>
+  )
+}
+
+function OverviewTab({ cycle, unions, onUpdate, toastError, toastSuccess, onTabChange }: {
   cycle: NegotiationCycle
   unions: LocalUnion[]
   onUpdate: (n: NegotiationCycle) => void
   toastError: (m: string) => void
   toastSuccess: (m: string) => void
+  onTabChange: (t: Tab) => void
 }): React.JSX.Element {
   const [editing, setEditing] = useState(false)
   const [form, setForm] = useState({
     name: cycle.name,
     local_union_id: cycle.local_union_id,
-    classification: cycle.classification,
+    neca_chapter_division: cycle.neca_chapter_division ?? '',
     cba_expiration_date: cycle.cba_expiration_date ?? '',
     proposed_effective_date: cycle.proposed_effective_date ?? '',
     status: cycle.status,
+    unit_size: cycle.unit_size?.toString() ?? '',
+    annual_hours: cycle.annual_hours?.toString() ?? '',
     notes: cycle.notes ?? ''
   })
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState('')
+
+  // Derived counts
+  const [proposalCount, setProposalCount] = useState<{ total: number; open: number; agreed: number; tabled: number } | null>(null)
+  const [sessionCount, setSessionCount] = useState<{ total: number; lastDate: string | null } | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    void Promise.all([
+      supabase.from('proposals').select('id, status').eq('cycle_id', cycle.id),
+      supabase.from('negotiation_sessions').select('id, session_date').eq('cycle_id', cycle.id).order('session_date', { ascending: false })
+    ]).then(([pRes, sRes]) => {
+      if (cancelled) return
+      if (!pRes.error) {
+        const proposals = (pRes.data ?? []) as { status: string }[]
+        const counts = { total: proposals.length, open: 0, agreed: 0, tabled: 0 }
+        proposals.forEach((p) => {
+          if (p.status === 'TA') counts.agreed++
+          else if (p.status === 'Withdrawn' || p.status === 'Rejected') counts.tabled++
+          else counts.open++
+        })
+        setProposalCount(counts)
+      }
+      if (!sRes.error) {
+        const sessions = (sRes.data ?? []) as { session_date: string }[]
+        setSessionCount({ total: sessions.length, lastDate: sessions[0]?.session_date ?? null })
+      }
+    })
+    return () => { cancelled = true }
+  }, [cycle.id])
 
   async function handleSave(): Promise<void> {
     setSaveError('')
@@ -176,10 +242,12 @@ function OverviewTab({ cycle, unions, onUpdate, toastError, toastSuccess }: {
       .update({
         name: form.name.trim(),
         local_union_id: form.local_union_id,
-        classification: form.classification.trim() || 'Journeyman',
+        neca_chapter_division: form.neca_chapter_division.trim() || null,
         cba_expiration_date: form.cba_expiration_date || null,
         proposed_effective_date: form.proposed_effective_date || null,
         status: form.status,
+        unit_size: form.unit_size ? parseInt(form.unit_size, 10) : null,
+        annual_hours: form.annual_hours ? parseInt(form.annual_hours, 10) : null,
         notes: form.notes.trim() || null
       })
       .eq('id', cycle.id)
@@ -203,15 +271,32 @@ function OverviewTab({ cycle, unions, onUpdate, toastError, toastSuccess }: {
     return `Local ${u.local_number}${u.city ? ` — ${u.city}` : ''}`
   }
 
+  const proposalSummary = proposalCount
+    ? `${proposalCount.total} item${proposalCount.total !== 1 ? 's' : ''} (${proposalCount.open} open · ${proposalCount.agreed} agreed · ${proposalCount.tabled} tabled)`
+    : null
+
+  const sessionSummary = sessionCount
+    ? `${sessionCount.total} session${sessionCount.total !== 1 ? 's' : ''}${sessionCount.lastDate ? ` · last: ${formatDate(sessionCount.lastDate)}` : ''}`
+    : null
+
+  const metaCard: React.CSSProperties = {
+    background: '#fff',
+    border: '1px solid #E2E8F0',
+    borderRadius: '8px',
+    padding: '24px',
+    marginBottom: '16px'
+  }
+
   return (
-    <div style={{ padding: '28px 32px', maxWidth: '680px' }}>
+    <div style={{ padding: '28px 32px', maxWidth: '720px' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '24px' }}>
-        <span style={{ fontSize: '18px', fontWeight: 700, color: '#0F172A' }}>{cycle.name}</span>
+        <h1 style={{ fontSize: '20px', fontWeight: 700, color: '#0F172A', margin: 0 }}>{cycle.name}</h1>
         {!editing && <button style={btnSecondary} onClick={() => setEditing(true)}>Edit</button>}
       </div>
 
       {editing ? (
-        <div>
+        <div style={metaCard}>
+          <div style={{ fontSize: '14px', fontWeight: 700, color: '#0F172A', marginBottom: '16px' }}>Edit Negotiation</div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: '14px' }}>
             <div style={{ gridColumn: '1 / -1' }}>
               <label style={labelStyle}>Name <span style={{ color: '#ef4444' }}>*</span></label>
@@ -224,8 +309,8 @@ function OverviewTab({ cycle, unions, onUpdate, toastError, toastSuccess }: {
               </select>
             </div>
             <div>
-              <label style={labelStyle}>Classification</label>
-              <input style={inputStyle} value={form.classification} onChange={(e) => setForm({ ...form, classification: e.target.value })} />
+              <label style={labelStyle}>NECA Chapter / Division</label>
+              <input style={inputStyle} value={form.neca_chapter_division} onChange={(e) => setForm({ ...form, neca_chapter_division: e.target.value })} placeholder="e.g. Western Pennsylvania NECA" />
             </div>
             <div>
               <label style={labelStyle}>CBA Expiration</label>
@@ -242,6 +327,21 @@ function OverviewTab({ cycle, unions, onUpdate, toastError, toastSuccess }: {
               </select>
             </div>
           </div>
+
+          <div style={{ borderTop: '1px solid #F1F5F9', paddingTop: '14px', marginBottom: '14px' }}>
+            <div style={{ fontSize: '11px', fontWeight: 700, color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '12px' }}>Economic Parameters</div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+              <div>
+                <label style={labelStyle}>Bargaining Unit Size</label>
+                <input style={inputStyle} type="number" min="1" value={form.unit_size} onChange={(e) => setForm({ ...form, unit_size: e.target.value })} placeholder="e.g. 240" />
+              </div>
+              <div>
+                <label style={labelStyle}>Avg Compensated Hours / Member / Year</label>
+                <input style={inputStyle} type="number" min="1" value={form.annual_hours} onChange={(e) => setForm({ ...form, annual_hours: e.target.value })} placeholder="e.g. 1800" />
+              </div>
+            </div>
+          </div>
+
           <div style={{ marginBottom: '16px' }}>
             <label style={labelStyle}>Notes</label>
             <textarea style={{ ...inputStyle, resize: 'vertical', minHeight: '80px' }} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
@@ -255,33 +355,33 @@ function OverviewTab({ cycle, unions, onUpdate, toastError, toastSuccess }: {
           </div>
         </div>
       ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
-          <Field label="Local Union" value={unionLabel(cycle.local_union_id)} />
-          <Field label="Classification" value={cycle.classification} />
-          <Field label="CBA Expiration" value={formatDate(cycle.cba_expiration_date)} />
-          <Field label="Proposed Effective Date" value={formatDate(cycle.proposed_effective_date)} />
-          <Field label="Created" value={formatDate(cycle.created_at)} />
+        <>
+          {/* Row 1: Core identity */}
+          <div style={{ ...metaCard, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px 40px' }}>
+            <MetaField label="Local Union" value={unionLabel(cycle.local_union_id)} />
+            <MetaField label="NECA Chapter / Division" value={cycle.neca_chapter_division} />
+            <MetaField label="CBA Expiration" value={formatDate(cycle.cba_expiration_date)} />
+            <MetaField label="Proposed Effective Date" value={formatDate(cycle.proposed_effective_date)} />
+            <MetaField
+              label="Proposals"
+              value={proposalSummary}
+              onClick={() => onTabChange('proposals')}
+            />
+            <MetaField
+              label="Sessions"
+              value={sessionSummary}
+              onClick={() => onTabChange('sessions')}
+            />
+          </div>
+
           {cycle.notes && (
-            <div style={{ gridColumn: '1 / -1' }}>
-              <FieldLabel>Notes</FieldLabel>
-              <div style={{ fontSize: '14px', color: '#475569', whiteSpace: 'pre-wrap' }}>{cycle.notes}</div>
+            <div style={metaCard}>
+              <EyebrowLabel>Notes</EyebrowLabel>
+              <div style={{ fontSize: '14px', color: '#475569', whiteSpace: 'pre-wrap', marginTop: '4px' }}>{cycle.notes}</div>
             </div>
           )}
-        </div>
+        </>
       )}
-    </div>
-  )
-}
-
-function FieldLabel({ children }: { children: React.ReactNode }): React.JSX.Element {
-  return <div style={{ fontSize: '11px', fontWeight: 600, color: '#64748B', textTransform: 'uppercase' as const, letterSpacing: '0.06em', marginBottom: '4px' }}>{children}</div>
-}
-
-function Field({ label, value }: { label: string; value: string | null }): React.JSX.Element {
-  return (
-    <div>
-      <FieldLabel>{label}</FieldLabel>
-      <div style={{ fontSize: '14px', color: value && value !== '—' ? '#0F172A' : '#CBD5E1' }}>{value || '—'}</div>
     </div>
   )
 }
@@ -302,13 +402,11 @@ function SessionsTab({ cycleId, isLocked }: { cycleId: ID; isLocked: boolean }):
   const [editingSession, setEditingSession] = useState<NegotiationSession | null>(null)
   const [editForm, setEditForm] = useState({ session_date: '', location: '', notes: '' })
 
-  // Delete dialogs
   const [confirmDeleteSession, setConfirmDeleteSession] = useState<NegotiationSession | null>(null)
   const [deletingSession, setDeletingSession] = useState(false)
   const [confirmDeleteAttendee, setConfirmDeleteAttendee] = useState<{ session: NegotiationSession; attendee: SessionAttendee } | null>(null)
   const [deletingAttendee, setDeletingAttendee] = useState(false)
 
-  // Attendee form
   const [attForm, setAttForm] = useState({ name: '', role: 'Management' as AttendeeRole, title: '' })
   const [attSaving, setAttSaving] = useState(false)
   const [showAttForm, setShowAttForm] = useState<ID | null>(null)
@@ -467,17 +565,17 @@ function SessionsTab({ cycleId, isLocked }: { cycleId: ID; isLocked: boolean }):
           <div style={{ fontSize: '14px', fontWeight: 700, color: '#0F172A', marginBottom: '16px' }}>New Session</div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
             <div>
-              <label style={labelStyle}>Date <span style={{ color: '#ef4444' }}>*</span></label>
+              <label style={labelStyle}>Session Date <span style={{ color: '#ef4444' }}>*</span></label>
               <input type="date" style={inputStyle} value={form.session_date} onChange={(e) => setForm({ ...form, session_date: e.target.value })} autoFocus />
             </div>
             <div>
               <label style={labelStyle}>Location</label>
-              <input style={inputStyle} value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })} placeholder="e.g. Chapter office" />
+              <input style={inputStyle} value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })} placeholder="e.g. NECA Office, Zoom" />
             </div>
           </div>
           <div style={{ marginBottom: '14px' }}>
-            <label style={labelStyle}>Notes</label>
-            <textarea style={{ ...inputStyle, resize: 'vertical', minHeight: '60px' }} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
+            <label style={labelStyle}>Session Notes</label>
+            <textarea style={{ ...inputStyle, resize: 'vertical', minHeight: '60px' }} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} placeholder="Key topics, outcomes, or action items" />
           </div>
           {saveError && <div style={errorBox}>{saveError}</div>}
           <div style={{ display: 'flex', gap: '8px' }}>
@@ -524,17 +622,17 @@ function SessionsTab({ cycleId, isLocked }: { cycleId: ID; isLocked: boolean }):
           ) : (
             <>
               <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '12px' }}>
-                <div>
+                <div style={{ flex: 1 }}>
                   <div style={{ fontSize: '15px', fontWeight: 700, color: '#0F172A' }}>{formatDate(session.session_date)}</div>
-                  {session.location && <div style={{ fontSize: '13px', color: '#64748B', marginTop: '2px' }}>{session.location}</div>}
-                  {session.notes && <div style={{ fontSize: '13px', color: '#475569', marginTop: '6px', whiteSpace: 'pre-wrap' }}>{session.notes}</div>}
+                  {session.location && <div style={{ fontSize: '13px', color: '#64748B', marginTop: '2px' }}>Location: {session.location}</div>}
+                  {session.notes && <div style={{ fontSize: '13px', color: '#475569', marginTop: '8px', whiteSpace: 'pre-wrap', lineHeight: 1.5 }}>{session.notes}</div>}
                 </div>
                 <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
                   <button
                     style={{ ...btnSecondary, fontSize: '12px', padding: '4px 10px' }}
                     onClick={() => toggleExpand(session.id)}
                   >
-                    {expanded === session.id ? 'Hide' : 'Attendees'}
+                    {expanded === session.id ? 'Hide Attendees' : 'Attendees'}
                   </button>
                   {!isLocked && (
                     <>
@@ -548,9 +646,9 @@ function SessionsTab({ cycleId, isLocked }: { cycleId: ID; isLocked: boolean }):
               {expanded === session.id && (
                 <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid #F1F5F9' }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
-                    <span style={{ fontSize: '13px', fontWeight: 600, color: '#64748B' }}>Attendees</span>
+                    <span style={{ fontSize: '11px', fontWeight: 700, color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Attendees</span>
                     {!isLocked && showAttForm !== session.id && (
-                      <button style={{ ...btnSecondary, fontSize: '12px', padding: '4px 10px' }} onClick={() => setShowAttForm(session.id)}>+ Add</button>
+                      <button style={{ ...btnSecondary, fontSize: '12px', padding: '4px 10px' }} onClick={() => setShowAttForm(session.id)}>+ Add Attendee</button>
                     )}
                   </div>
 
@@ -640,14 +738,69 @@ function SessionsTab({ cycleId, isLocked }: { cycleId: ID; isLocked: boolean }):
 
 // ─── Proposals Tab ────────────────────────────────────────────────────────────
 
+type ProposalStep = 'list' | 'choose-type' | 'economic-form' | 'language-form'
+
+interface EconFormState {
+  title: string
+  article_reference: string
+  section: string
+  unit: UnitOption
+  current_value: string
+  union_value: string
+  mgmt_value: string
+  no_mgmt_counter: boolean
+  proposed_by: '' | ProposedBy
+  cost_union: string
+  cost_mgmt: string
+  status: ProposalStatus
+  priority: boolean
+  rationale: string
+  last_movement: string
+}
+
+interface LangFormState {
+  title: string
+  article_reference: string
+  section: string
+  no_current_language: boolean
+  current_text: string
+  union_no_change: boolean
+  union_text: string
+  mgmt_no_change: boolean
+  mgmt_text: string
+  status: ProposalStatus
+  priority: boolean
+  rationale: string
+  last_movement: string
+}
+
+const defaultEconForm: EconFormState = {
+  title: '', article_reference: '', section: '', unit: '$/hr',
+  current_value: '', union_value: '', mgmt_value: '',
+  no_mgmt_counter: false, proposed_by: '',
+  cost_union: '', cost_mgmt: '',
+  status: 'Open', priority: false, rationale: '', last_movement: ''
+}
+
+const defaultLangForm: LangFormState = {
+  title: '', article_reference: '', section: '',
+  no_current_language: false, current_text: '',
+  union_no_change: true, union_text: '',
+  mgmt_no_change: true, mgmt_text: '',
+  status: 'Open', priority: false, rationale: '', last_movement: ''
+}
+
 function ProposalsTab({ cycleId, isLocked }: { cycleId: ID; isLocked: boolean }): React.JSX.Element {
   const toast = useToast()
   const [proposals, setProposals] = useState<Proposal[]>([])
   const [sessions, setSessions] = useState<NegotiationSession[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  const [showForm, setShowForm] = useState(false)
-  const [form, setForm] = useState({ title: '', category: 'Language' as ProposalCategory, article_reference: '', proposed_by: '' as '' | ProposedBy })
+  const [step, setStep] = useState<ProposalStep>('list')
+  const [editingProposal, setEditingProposal] = useState<Proposal | null>(null)
+
+  const [econForm, setEconForm] = useState<EconFormState>(defaultEconForm)
+  const [langForm, setLangForm] = useState<LangFormState>(defaultLangForm)
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState('')
 
@@ -655,7 +808,6 @@ function ProposalsTab({ cycleId, isLocked }: { cycleId: ID; isLocked: boolean })
   const [positions, setPositions] = useState<Record<ID, ProposalPosition[]>>({})
   const [statusFilter, setStatusFilter] = useState<'all' | ProposalStatus>('all')
 
-  // Delete dialogs
   const [confirmDeleteProposal, setConfirmDeleteProposal] = useState<Proposal | null>(null)
   const [deletingProposal, setDeletingProposal] = useState(false)
   const [confirmDeletePosition, setConfirmDeletePosition] = useState<{ proposal: Proposal; position: ProposalPosition } | null>(null)
@@ -663,7 +815,6 @@ function ProposalsTab({ cycleId, isLocked }: { cycleId: ID; isLocked: boolean })
 
   useEffect(() => {
     let cancelled = false
-
     void Promise.all([
       supabase.from('proposals').select('*').eq('cycle_id', cycleId).order('sort_order').order('created_at'),
       supabase.from('negotiation_sessions').select('*').eq('cycle_id', cycleId).order('session_date', { ascending: false })
@@ -680,57 +831,137 @@ function ProposalsTab({ cycleId, isLocked }: { cycleId: ID; isLocked: boolean })
     return () => { cancelled = true }
   }, [cycleId])
 
-  async function loadPositions(proposalId: ID): Promise<void> {
-    if (positions[proposalId]) return
-    const { data, error: err } = await supabase
-      .from('proposal_positions')
-      .select('*')
-      .eq('proposal_id', proposalId)
-      .order('position_date')
-      .order('created_at')
-    if (err) {
-      toast.error('Could not load positions: ' + describeError(err))
-      return
-    }
-    setPositions((prev) => ({ ...prev, [proposalId]: (data ?? []) as ProposalPosition[] }))
-  }
-
-  function toggleExpand(id: ID): void {
-    if (expanded === id) setExpanded(null)
-    else {
-      setExpanded(id)
-      void loadPositions(id)
-    }
-  }
-
-  async function handleAddProposal(): Promise<void> {
+  function cancelForm(): void {
+    setStep('list')
+    setEditingProposal(null)
+    setEconForm(defaultEconForm)
+    setLangForm(defaultLangForm)
     setSaveError('')
-    if (!form.title.trim()) { setSaveError('Title is required.'); return }
+  }
+
+  function startEditEcon(p: Proposal): void {
+    setEconForm({
+      title: p.title,
+      article_reference: p.article_reference ?? '',
+      section: p.section ?? '',
+      unit: (p.unit as UnitOption) ?? '$/hr',
+      current_value: p.current_value?.toString() ?? '',
+      union_value: p.union_value?.toString() ?? '',
+      mgmt_value: p.mgmt_value?.toString() ?? '',
+      no_mgmt_counter: p.mgmt_value == null,
+      proposed_by: p.proposed_by ?? '',
+      cost_union: p.cost_union?.toString() ?? '',
+      cost_mgmt: p.cost_mgmt?.toString() ?? '',
+      status: p.status,
+      priority: p.priority,
+      rationale: p.rationale ?? '',
+      last_movement: p.last_movement ?? ''
+    })
+    setEditingProposal(p)
+    setStep('economic-form')
+  }
+
+  function startEditLang(p: Proposal): void {
+    setLangForm({
+      title: p.title,
+      article_reference: p.article_reference ?? '',
+      section: p.section ?? '',
+      no_current_language: p.current_text == null,
+      current_text: p.current_text ?? '',
+      union_no_change: !p.union_change,
+      union_text: p.union_text ?? '',
+      mgmt_no_change: !p.mgmt_change,
+      mgmt_text: p.mgmt_text ?? '',
+      status: p.status,
+      priority: p.priority,
+      rationale: p.rationale ?? '',
+      last_movement: p.last_movement ?? ''
+    })
+    setEditingProposal(p)
+    setStep('language-form')
+  }
+
+  async function handleSaveEcon(): Promise<void> {
+    setSaveError('')
+    if (!econForm.title.trim()) { setSaveError('Item name is required.'); return }
+    if (!econForm.current_value) { setSaveError('Current value is required.'); return }
+    if (!econForm.union_value) { setSaveError('Union position is required.'); return }
     setSaving(true)
-    const { data, error: err } = await supabase
-      .from('proposals')
-      .insert({
-        cycle_id: cycleId,
-        title: form.title.trim(),
-        category: form.category,
-        article_reference: form.article_reference.trim() || null,
-        proposed_by: form.proposed_by || null,
-        status: 'Open',
-        sort_order: proposals.length
-      })
-      .select()
-      .single()
-    setSaving(false)
-    if (err || !data) {
-      const msg = describeError(err, 'Could not save proposal.')
-      setSaveError(msg)
-      toast.error(msg)
-      return
+
+    const payload = {
+      cycle_id: cycleId,
+      title: econForm.title.trim(),
+      category: 'Economic' as ProposalCategory,
+      article_reference: econForm.article_reference.trim() || null,
+      section: econForm.section.trim() || null,
+      unit: econForm.unit,
+      format: unitToFormat(econForm.unit),
+      current_value: parseFloat(econForm.current_value),
+      union_value: parseFloat(econForm.union_value),
+      mgmt_value: econForm.no_mgmt_counter ? null : (econForm.mgmt_value ? parseFloat(econForm.mgmt_value) : null),
+      proposed_by: econForm.proposed_by || null,
+      cost_union: econForm.cost_union ? parseFloat(econForm.cost_union) : null,
+      cost_mgmt: econForm.cost_mgmt ? parseFloat(econForm.cost_mgmt) : null,
+      status: econForm.status,
+      priority: econForm.priority,
+      rationale: econForm.rationale.trim() || null,
+      last_movement: econForm.last_movement.trim() || null,
+      sort_order: editingProposal ? editingProposal.sort_order : proposals.length
     }
-    setProposals((prev) => [...prev, data as Proposal])
-    setShowForm(false)
-    setForm({ title: '', category: 'Language', article_reference: '', proposed_by: '' })
-    toast.success('Proposal added.')
+
+    if (editingProposal) {
+      const { data, error: err } = await supabase.from('proposals').update(payload).eq('id', editingProposal.id).select().single()
+      setSaving(false)
+      if (err || !data) { setSaveError(describeError(err, 'Could not save.')); toast.error('Could not save.'); return }
+      setProposals((prev) => prev.map((p) => p.id === editingProposal.id ? data as Proposal : p))
+      toast.success('Proposal updated.')
+    } else {
+      const { data, error: err } = await supabase.from('proposals').insert(payload).select().single()
+      setSaving(false)
+      if (err || !data) { setSaveError(describeError(err, 'Could not save.')); toast.error('Could not save.'); return }
+      setProposals((prev) => [...prev, data as Proposal])
+      toast.success('Proposal added.')
+    }
+    cancelForm()
+  }
+
+  async function handleSaveLang(): Promise<void> {
+    setSaveError('')
+    if (!langForm.title.trim()) { setSaveError('Provision name is required.'); return }
+    setSaving(true)
+
+    const payload = {
+      cycle_id: cycleId,
+      title: langForm.title.trim(),
+      category: 'Language' as ProposalCategory,
+      article_reference: langForm.article_reference.trim() || null,
+      section: langForm.section.trim() || null,
+      current_text: langForm.no_current_language ? null : (langForm.current_text.trim() || null),
+      union_change: !langForm.union_no_change,
+      union_text: !langForm.union_no_change ? (langForm.union_text.trim() || null) : null,
+      mgmt_change: !langForm.mgmt_no_change,
+      mgmt_text: !langForm.mgmt_no_change ? (langForm.mgmt_text.trim() || null) : null,
+      status: langForm.status,
+      priority: langForm.priority,
+      rationale: langForm.rationale.trim() || null,
+      last_movement: langForm.last_movement.trim() || null,
+      sort_order: editingProposal ? editingProposal.sort_order : proposals.length
+    }
+
+    if (editingProposal) {
+      const { data, error: err } = await supabase.from('proposals').update(payload).eq('id', editingProposal.id).select().single()
+      setSaving(false)
+      if (err || !data) { setSaveError(describeError(err, 'Could not save.')); toast.error('Could not save.'); return }
+      setProposals((prev) => prev.map((p) => p.id === editingProposal.id ? data as Proposal : p))
+      toast.success('Proposal updated.')
+    } else {
+      const { data, error: err } = await supabase.from('proposals').insert(payload).select().single()
+      setSaving(false)
+      if (err || !data) { setSaveError(describeError(err, 'Could not save.')); toast.error('Could not save.'); return }
+      setProposals((prev) => [...prev, data as Proposal])
+      toast.success('Proposal added.')
+    }
+    cancelForm()
   }
 
   async function handleStatusChange(proposal: Proposal, newStatus: ProposalStatus): Promise<void> {
@@ -763,9 +994,21 @@ function ProposalsTab({ cycleId, isLocked }: { cycleId: ID; isLocked: boolean })
     toast.success('Proposal deleted.')
   }
 
-  // Fixes the audit's "Add Position closure bug": this takes the form values as
-  // arguments so it operates on the current input from the proposal that fired
-  // it, not on whatever stale `posForm` state the parent last set.
+  async function loadPositions(proposalId: ID): Promise<void> {
+    if (positions[proposalId]) return
+    const { data, error: err } = await supabase
+      .from('proposal_positions')
+      .select('*')
+      .eq('proposal_id', proposalId)
+      .order('position_date')
+      .order('created_at')
+    if (err) {
+      toast.error('Could not load positions: ' + describeError(err))
+      return
+    }
+    setPositions((prev) => ({ ...prev, [proposalId]: (data ?? []) as ProposalPosition[] }))
+  }
+
   async function handleAddPosition(
     proposalId: ID,
     values: { side: PositionSide; session_id: ID | null; position_text: string }
@@ -774,12 +1017,7 @@ function ProposalsTab({ cycleId, isLocked }: { cycleId: ID; isLocked: boolean })
     if (!text) return
     const { data, error: err } = await supabase
       .from('proposal_positions')
-      .insert({
-        proposal_id: proposalId,
-        session_id: values.session_id,
-        side: values.side,
-        position_text: text
-      })
+      .insert({ proposal_id: proposalId, session_id: values.session_id, side: values.side, position_text: text })
       .select()
       .single()
     if (err || !data) {
@@ -811,6 +1049,288 @@ function ProposalsTab({ cycleId, isLocked }: { cycleId: ID; isLocked: boolean })
 
   if (loading) return <div style={{ padding: '24px', fontSize: '13px', color: '#64748B' }}>Loading…</div>
 
+  // ── Type chooser ──────────────────────────────────────────────────────────
+  if (step === 'choose-type') {
+    return (
+      <div style={{ padding: '32px', maxWidth: '600px' }}>
+        <div style={{ fontSize: '14px', fontWeight: 700, color: '#0F172A', marginBottom: '20px' }}>What type of proposal?</div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '24px' }}>
+          {([
+            { type: 'Economic', title: 'Economic', desc: 'Wages, fringes, contributions, dollar amounts', step: 'economic-form' as ProposalStep },
+            { type: 'Language', title: 'Language', desc: 'Contract clauses, work rules, procedures', step: 'language-form' as ProposalStep },
+          ] as const).map((opt) => (
+            <button
+              key={opt.type}
+              onClick={() => setStep(opt.step)}
+              style={{
+                background: '#fff', border: '1px solid #E2E8F0', borderRadius: '8px',
+                padding: '20px', textAlign: 'left', cursor: 'pointer',
+                transition: 'border-color 0.15s'
+              }}
+              onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.borderColor = '#CBD5E1' }}
+              onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.borderColor = '#E2E8F0' }}
+            >
+              <div style={{ fontSize: '14px', fontWeight: 700, color: '#0F172A', marginBottom: '6px' }}>{opt.title}</div>
+              <div style={{ fontSize: '13px', color: '#64748B', lineHeight: 1.4 }}>{opt.desc}</div>
+            </button>
+          ))}
+        </div>
+        <button style={btnSecondary} onClick={cancelForm}>Cancel</button>
+      </div>
+    )
+  }
+
+  // ── Economic form ─────────────────────────────────────────────────────────
+  if (step === 'economic-form') {
+    const isEdit = editingProposal !== null
+    return (
+      <div style={{ padding: '28px 32px', maxWidth: '720px' }}>
+        <div style={{ fontSize: '15px', fontWeight: 700, color: '#0F172A', marginBottom: '20px' }}>
+          {isEdit ? 'Edit Economic Proposal' : 'New Economic Proposal'}
+        </div>
+        <div style={{ background: '#fff', border: '1px solid #E2E8F0', borderRadius: '8px', padding: '24px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: '14px' }}>
+            <div style={{ gridColumn: '1 / -1' }}>
+              <label style={labelStyle}>Item Name <span style={{ color: '#ef4444' }}>*</span></label>
+              <input style={inputStyle} value={econForm.title} autoFocus onChange={(e) => setEconForm({ ...econForm, title: e.target.value })} placeholder="e.g. Base journeyman wage" />
+            </div>
+            <div>
+              <label style={labelStyle}>Article</label>
+              <input style={inputStyle} value={econForm.article_reference} onChange={(e) => setEconForm({ ...econForm, article_reference: e.target.value })} placeholder="e.g. Article 5" />
+            </div>
+            <div>
+              <label style={labelStyle}>Section</label>
+              <input style={inputStyle} value={econForm.section} onChange={(e) => setEconForm({ ...econForm, section: e.target.value })} placeholder="e.g. 5.01" />
+            </div>
+            <div>
+              <label style={labelStyle}>Unit <span style={{ color: '#ef4444' }}>*</span></label>
+              <select style={inputStyle} value={econForm.unit} onChange={(e) => setEconForm({ ...econForm, unit: e.target.value as UnitOption })}>
+                {UNIT_OPTIONS.map((u) => <option key={u} value={u}>{u}</option>)}
+              </select>
+            </div>
+            <div>
+              <label style={labelStyle}>Proposed By</label>
+              <select style={inputStyle} value={econForm.proposed_by} onChange={(e) => setEconForm({ ...econForm, proposed_by: e.target.value as '' | ProposedBy })}>
+                <option value="">—</option>
+                <option value="Union">Union</option>
+                <option value="Management">Management</option>
+                <option value="Joint">Joint</option>
+              </select>
+            </div>
+          </div>
+
+          <div style={{ borderTop: '1px solid #F1F5F9', paddingTop: '16px', marginBottom: '16px' }}>
+            <div style={{ fontSize: '11px', fontWeight: 700, color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '14px' }}>Positions</div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: '14px' }}>
+              <div>
+                <label style={labelStyle}>Current Value <span style={{ color: '#ef4444' }}>*</span></label>
+                <input style={inputStyle} type="number" step="any" value={econForm.current_value} onChange={(e) => setEconForm({ ...econForm, current_value: e.target.value })} placeholder="What the contract says now" />
+              </div>
+              <div>
+                <label style={labelStyle}>Union Position <span style={{ color: '#ef4444' }}>*</span></label>
+                <input style={inputStyle} type="number" step="any" value={econForm.union_value} onChange={(e) => setEconForm({ ...econForm, union_value: e.target.value })} placeholder="Union's proposed value" />
+              </div>
+              <div>
+                <label style={labelStyle}>Management Position</label>
+                <input
+                  style={{ ...inputStyle, opacity: econForm.no_mgmt_counter ? 0.4 : 1 }}
+                  type="number" step="any"
+                  value={econForm.no_mgmt_counter ? '' : econForm.mgmt_value}
+                  disabled={econForm.no_mgmt_counter}
+                  onChange={(e) => setEconForm({ ...econForm, mgmt_value: e.target.value })}
+                  placeholder="Management's counter"
+                />
+                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '6px', cursor: 'pointer', fontSize: '12px', color: '#64748B' }}>
+                  <input type="checkbox" checked={econForm.no_mgmt_counter} onChange={(e) => setEconForm({ ...econForm, no_mgmt_counter: e.target.checked, mgmt_value: '' })} />
+                  No counter yet
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <div style={{ borderTop: '1px solid #F1F5F9', paddingTop: '16px', marginBottom: '16px' }}>
+            <div style={{ fontSize: '11px', fontWeight: 700, color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '14px' }}>Cost Impact (optional)</div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+              <div>
+                <label style={labelStyle}>Union $/hr impact</label>
+                <input style={inputStyle} type="number" step="any" value={econForm.cost_union} onChange={(e) => setEconForm({ ...econForm, cost_union: e.target.value })} placeholder="e.g. 2.50" />
+              </div>
+              <div>
+                <label style={labelStyle}>Management $/hr impact</label>
+                <input style={inputStyle} type="number" step="any" value={econForm.cost_mgmt} onChange={(e) => setEconForm({ ...econForm, cost_mgmt: e.target.value })} placeholder="e.g. 1.25" />
+              </div>
+            </div>
+          </div>
+
+          <div style={{ borderTop: '1px solid #F1F5F9', paddingTop: '16px', marginBottom: '16px' }}>
+            <div style={{ fontSize: '11px', fontWeight: 700, color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '14px' }}>Status and Notes</div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: '14px' }}>
+              <div>
+                <label style={labelStyle}>Status <span style={{ color: '#ef4444' }}>*</span></label>
+                <select style={inputStyle} value={econForm.status} onChange={(e) => setEconForm({ ...econForm, status: e.target.value as ProposalStatus })}>
+                  {PROPOSAL_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', paddingTop: '20px' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '13px', color: '#475569' }}>
+                  <input type="checkbox" checked={econForm.priority} onChange={(e) => setEconForm({ ...econForm, priority: e.target.checked })} />
+                  Key issue (priority item)
+                </label>
+              </div>
+            </div>
+            <div style={{ marginBottom: '14px' }}>
+              <label style={labelStyle}>Rationale</label>
+              <textarea style={{ ...inputStyle, resize: 'vertical', minHeight: '60px' }} value={econForm.rationale} onChange={(e) => setEconForm({ ...econForm, rationale: e.target.value })} placeholder="Union or management rationale for this position" />
+            </div>
+            <div>
+              <label style={labelStyle}>Last Movement</label>
+              <textarea style={{ ...inputStyle, resize: 'vertical', minHeight: '50px' }} value={econForm.last_movement} onChange={(e) => setEconForm({ ...econForm, last_movement: e.target.value })} placeholder="e.g. Mgmt moved +$0.25/hr at Mar 18 session" />
+            </div>
+          </div>
+
+          {saveError && <div style={errorBox}>{saveError}</div>}
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <button
+              style={{ ...btnPrimary, opacity: saving ? 0.5 : 1 }}
+              disabled={saving}
+              onClick={handleSaveEcon}
+            >
+              {saving ? 'Saving…' : isEdit ? 'Save Changes' : 'Add Proposal'}
+            </button>
+            <button style={btnSecondary} onClick={cancelForm}>Cancel</button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // ── Language form ─────────────────────────────────────────────────────────
+  if (step === 'language-form') {
+    const isEdit = editingProposal !== null
+    return (
+      <div style={{ padding: '28px 32px', maxWidth: '720px' }}>
+        <div style={{ fontSize: '15px', fontWeight: 700, color: '#0F172A', marginBottom: '20px' }}>
+          {isEdit ? 'Edit Language Proposal' : 'New Language Proposal'}
+        </div>
+        <div style={{ background: '#fff', border: '1px solid #E2E8F0', borderRadius: '8px', padding: '24px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: '14px' }}>
+            <div style={{ gridColumn: '1 / -1' }}>
+              <label style={labelStyle}>Provision Name <span style={{ color: '#ef4444' }}>*</span></label>
+              <input style={inputStyle} value={langForm.title} autoFocus onChange={(e) => setLangForm({ ...langForm, title: e.target.value })} placeholder="e.g. Regular working hours" />
+            </div>
+            <div>
+              <label style={labelStyle}>Article</label>
+              <input style={inputStyle} value={langForm.article_reference} onChange={(e) => setLangForm({ ...langForm, article_reference: e.target.value })} placeholder="e.g. Article 4" />
+            </div>
+            <div>
+              <label style={labelStyle}>Section</label>
+              <input style={inputStyle} value={langForm.section} onChange={(e) => setLangForm({ ...langForm, section: e.target.value })} placeholder="e.g. 4.01" />
+            </div>
+          </div>
+
+          <div style={{ borderTop: '1px solid #F1F5F9', paddingTop: '16px', marginBottom: '16px' }}>
+            <div style={{ fontSize: '11px', fontWeight: 700, color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '12px' }}>Current Language</div>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '13px', color: '#475569', marginBottom: '10px' }}>
+              <input type="checkbox" checked={langForm.no_current_language} onChange={(e) => setLangForm({ ...langForm, no_current_language: e.target.checked, current_text: '' })} />
+              No current language (this is a new clause)
+            </label>
+            {!langForm.no_current_language && (
+              <textarea
+                style={{ ...inputStyle, resize: 'vertical', minHeight: '80px' }}
+                value={langForm.current_text}
+                onChange={(e) => setLangForm({ ...langForm, current_text: e.target.value })}
+                placeholder="Current contract text"
+              />
+            )}
+          </div>
+
+          <div style={{ borderTop: '1px solid #F1F5F9', paddingTop: '16px', marginBottom: '16px' }}>
+            <div style={{ fontSize: '11px', fontWeight: 700, color: '#1E3A8A', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '12px' }}>Union Position</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '13px', color: '#475569' }}>
+                <input type="radio" name="union-pos" checked={langForm.union_no_change} onChange={() => setLangForm({ ...langForm, union_no_change: true })} />
+                No change proposed (accepts current language)
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '13px', color: '#475569' }}>
+                <input type="radio" name="union-pos" checked={!langForm.union_no_change} onChange={() => setLangForm({ ...langForm, union_no_change: false })} />
+                Proposes new/modified language
+              </label>
+              {!langForm.union_no_change && (
+                <textarea
+                  style={{ ...inputStyle, resize: 'vertical', minHeight: '80px', marginTop: '4px' }}
+                  value={langForm.union_text}
+                  onChange={(e) => setLangForm({ ...langForm, union_text: e.target.value })}
+                  placeholder="Union's proposed language"
+                />
+              )}
+            </div>
+          </div>
+
+          <div style={{ borderTop: '1px solid #F1F5F9', paddingTop: '16px', marginBottom: '16px' }}>
+            <div style={{ fontSize: '11px', fontWeight: 700, color: '#92400E', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '12px' }}>Management Position</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '13px', color: '#475569' }}>
+                <input type="radio" name="mgmt-pos" checked={langForm.mgmt_no_change} onChange={() => setLangForm({ ...langForm, mgmt_no_change: true })} />
+                No change proposed (accepts current language)
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '13px', color: '#475569' }}>
+                <input type="radio" name="mgmt-pos" checked={!langForm.mgmt_no_change} onChange={() => setLangForm({ ...langForm, mgmt_no_change: false })} />
+                Proposes new/modified language
+              </label>
+              {!langForm.mgmt_no_change && (
+                <textarea
+                  style={{ ...inputStyle, resize: 'vertical', minHeight: '80px', marginTop: '4px' }}
+                  value={langForm.mgmt_text}
+                  onChange={(e) => setLangForm({ ...langForm, mgmt_text: e.target.value })}
+                  placeholder="Management's proposed language"
+                />
+              )}
+            </div>
+          </div>
+
+          <div style={{ borderTop: '1px solid #F1F5F9', paddingTop: '16px', marginBottom: '16px' }}>
+            <div style={{ fontSize: '11px', fontWeight: 700, color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '14px' }}>Status and Notes</div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: '14px' }}>
+              <div>
+                <label style={labelStyle}>Status <span style={{ color: '#ef4444' }}>*</span></label>
+                <select style={inputStyle} value={langForm.status} onChange={(e) => setLangForm({ ...langForm, status: e.target.value as ProposalStatus })}>
+                  {PROPOSAL_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', paddingTop: '20px' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '13px', color: '#475569' }}>
+                  <input type="checkbox" checked={langForm.priority} onChange={(e) => setLangForm({ ...langForm, priority: e.target.checked })} />
+                  Key issue (priority item)
+                </label>
+              </div>
+            </div>
+            <div style={{ marginBottom: '14px' }}>
+              <label style={labelStyle}>Drafting Note / Rationale</label>
+              <textarea style={{ ...inputStyle, resize: 'vertical', minHeight: '60px' }} value={langForm.rationale} onChange={(e) => setLangForm({ ...langForm, rationale: e.target.value })} placeholder="Context for this provision" />
+            </div>
+            <div>
+              <label style={labelStyle}>Last Movement</label>
+              <textarea style={{ ...inputStyle, resize: 'vertical', minHeight: '50px' }} value={langForm.last_movement} onChange={(e) => setLangForm({ ...langForm, last_movement: e.target.value })} placeholder="e.g. Management opened the proposal Mar 18" />
+            </div>
+          </div>
+
+          {saveError && <div style={errorBox}>{saveError}</div>}
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <button
+              style={{ ...btnPrimary, opacity: saving ? 0.5 : 1 }}
+              disabled={saving}
+              onClick={handleSaveLang}
+            >
+              {saving ? 'Saving…' : isEdit ? 'Save Changes' : 'Add Proposal'}
+            </button>
+            <button style={btnSecondary} onClick={cancelForm}>Cancel</button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // ── Proposal list ─────────────────────────────────────────────────────────
   return (
     <div style={{ padding: '24px 32px', maxWidth: '900px' }}>
       {error && <div style={errorBox}>{error}</div>}
@@ -832,50 +1352,12 @@ function ProposalsTab({ cycleId, isLocked }: { cycleId: ID; isLocked: boolean })
             </button>
           ))}
         </div>
-        {!isLocked && !showForm && (
-          <button style={btnPrimary} onClick={() => setShowForm(true)}>+ Add Proposal</button>
+        {!isLocked && (
+          <button style={btnPrimary} onClick={() => setStep('choose-type')}>+ Add Proposal</button>
         )}
       </div>
 
-      {showForm && (
-        <div style={{ ...card, borderColor: '#1E3A8A', borderWidth: '1.5px', marginBottom: '20px' }}>
-          <div style={{ fontSize: '14px', fontWeight: 700, color: '#0F172A', marginBottom: '16px' }}>New Proposal</div>
-          <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr', gap: '12px', marginBottom: '14px' }}>
-            <div>
-              <label style={labelStyle}>Title <span style={{ color: '#ef4444' }}>*</span></label>
-              <input style={inputStyle} value={form.title} autoFocus onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="e.g. Health & Welfare" />
-            </div>
-            <div>
-              <label style={labelStyle}>Article #</label>
-              <input style={inputStyle} value={form.article_reference} onChange={(e) => setForm({ ...form, article_reference: e.target.value })} placeholder="e.g. Art. 12" />
-            </div>
-            <div>
-              <label style={labelStyle}>Category</label>
-              <select style={inputStyle} value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value as ProposalCategory })}>
-                <option value="Language">Language</option>
-                <option value="Economic">Economic</option>
-              </select>
-            </div>
-            <div>
-              <label style={labelStyle}>Proposed By</label>
-              <select style={inputStyle} value={form.proposed_by} onChange={(e) => setForm({ ...form, proposed_by: e.target.value as '' | ProposedBy })}>
-                <option value="">—</option>
-                <option value="NECA">NECA</option>
-                <option value="IBEW">IBEW</option>
-              </select>
-            </div>
-          </div>
-          {saveError && <div style={errorBox}>{saveError}</div>}
-          <div style={{ display: 'flex', gap: '8px' }}>
-            <button style={{ ...btnPrimary, opacity: !form.title.trim() || saving ? 0.5 : 1 }} disabled={!form.title.trim() || saving} onClick={handleAddProposal}>
-              {saving ? 'Saving…' : 'Add Proposal'}
-            </button>
-            <button style={btnSecondary} onClick={() => { setShowForm(false); setSaveError('') }}>Cancel</button>
-          </div>
-        </div>
-      )}
-
-      {proposals.length === 0 && !showForm ? (
+      {proposals.length === 0 ? (
         <div style={{ textAlign: 'center', padding: '60px 24px' }}>
           <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#CBD5E1" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ margin: '0 auto 16px', display: 'block' }} aria-hidden="true">
             <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
@@ -884,8 +1366,8 @@ function ProposalsTab({ cycleId, isLocked }: { cycleId: ID; isLocked: boolean })
             <line x1="16" y1="17" x2="8" y2="17"/>
           </svg>
           <div style={{ fontSize: '15px', fontWeight: 600, color: '#0F172A', marginBottom: '6px' }}>No proposals yet</div>
-          <div style={{ fontSize: '13px', color: '#64748B', marginBottom: '20px' }}>Add contract articles or items being negotiated.</div>
-          {!isLocked && <button style={btnPrimary} onClick={() => setShowForm(true)}>Add First Proposal</button>}
+          <div style={{ fontSize: '13px', color: '#64748B', marginBottom: '20px' }}>Add economic items or language provisions being negotiated.</div>
+          {!isLocked && <button style={btnPrimary} onClick={() => setStep('choose-type')}>Add First Proposal</button>}
         </div>
       ) : (
         <>
@@ -899,9 +1381,13 @@ function ProposalsTab({ cycleId, isLocked }: { cycleId: ID; isLocked: boolean })
                   positions={positions[p.id]}
                   expanded={expanded === p.id}
                   isLocked={isLocked}
-                  onToggle={() => toggleExpand(p.id)}
+                  onToggle={() => {
+                    if (expanded === p.id) setExpanded(null)
+                    else { setExpanded(p.id); void loadPositions(p.id) }
+                  }}
                   onStatusChange={(s) => handleStatusChange(p, s)}
                   onDelete={() => setConfirmDeleteProposal(p)}
+                  onEdit={() => p.category === 'Economic' ? startEditEcon(p) : startEditLang(p)}
                   onAddPosition={(values) => handleAddPosition(p.id, values)}
                   onDeletePosition={(pos) => setConfirmDeletePosition({ proposal: p, position: pos })}
                 />
@@ -921,9 +1407,13 @@ function ProposalsTab({ cycleId, isLocked }: { cycleId: ID; isLocked: boolean })
                   positions={positions[p.id]}
                   expanded={expanded === p.id}
                   isLocked={isLocked}
-                  onToggle={() => toggleExpand(p.id)}
+                  onToggle={() => {
+                    if (expanded === p.id) setExpanded(null)
+                    else { setExpanded(p.id); void loadPositions(p.id) }
+                  }}
                   onStatusChange={(s) => handleStatusChange(p, s)}
                   onDelete={() => setConfirmDeleteProposal(p)}
+                  onEdit={() => p.category === 'Economic' ? startEditEcon(p) : startEditLang(p)}
                   onAddPosition={(values) => handleAddPosition(p.id, values)}
                   onDeletePosition={(pos) => setConfirmDeletePosition({ proposal: p, position: pos })}
                 />
@@ -967,14 +1457,12 @@ interface ProposalCardProps {
   onToggle: () => void
   onStatusChange: (s: ProposalStatus) => void
   onDelete: () => void
+  onEdit: () => void
   onAddPosition: (values: { side: PositionSide; session_id: ID | null; position_text: string }) => void | Promise<void>
   onDeletePosition: (pos: ProposalPosition) => void
 }
 
-function ProposalCard({ proposal, sessions, positions, expanded, isLocked, onToggle, onStatusChange, onDelete, onAddPosition, onDeletePosition }: ProposalCardProps): React.JSX.Element {
-  // Local-to-this-card form state. This is the audit's closure bug fix: every
-  // card owns its own input, so typing in one card and clicking Add on a
-  // different card cannot send the wrong text.
+function ProposalCard({ proposal, sessions, positions, expanded, isLocked, onToggle, onStatusChange, onDelete, onEdit, onAddPosition, onDeletePosition }: ProposalCardProps): React.JSX.Element {
   const [showPosForm, setShowPosForm] = useState(false)
   const [posForm, setPosForm] = useState<{ side: PositionSide; session_id: string; position_text: string }>({
     side: 'Management', session_id: '', position_text: ''
@@ -982,6 +1470,7 @@ function ProposalCard({ proposal, sessions, positions, expanded, isLocked, onTog
   const [posSaving, setPosSaving] = useState(false)
 
   const sc = PROPOSAL_STATUS_COLORS[proposal.status]
+  const isEcon = proposal.category === 'Economic'
   const mgmtPositions = (positions ?? []).filter((p) => p.side === 'Management')
   const laborPositions = (positions ?? []).filter((p) => p.side === 'Labor')
 
@@ -998,28 +1487,65 @@ function ProposalCard({ proposal, sessions, positions, expanded, isLocked, onTog
     setShowPosForm(false)
   }
 
+  // Economic quick summary
+  function econSummary(): string | null {
+    const cur = proposal.current_value
+    const uni = proposal.union_value
+    const mgmt = proposal.mgmt_value
+    if (cur == null && uni == null) return null
+    const fmt = (v: number | null) => v == null ? '—' : (proposal.unit === '%' ? `${v}%` : `$${v}`)
+    return `Current: ${fmt(cur)} → Union: ${fmt(uni)}${mgmt != null ? ` → Mgmt: ${fmt(mgmt)}` : ''}`
+  }
+
+  // Language quick summary
+  function langSummary(): string {
+    const u = proposal.union_change ? 'Change proposed' : 'No change'
+    const m = proposal.mgmt_change ? 'Change proposed' : 'No change'
+    return `Union: ${u} · Mgmt: ${m}`
+  }
+
   return (
     <div style={{ ...card, marginBottom: '8px' }}>
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '12px' }}>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', marginBottom: '4px' }}>
+            {/* Type badge */}
+            <span style={{
+              fontSize: '10px', fontWeight: 700, padding: '2px 7px', borderRadius: '20px', textTransform: 'uppercase', letterSpacing: '0.04em',
+              background: isEcon ? '#FFFBEB' : '#EFF6FF',
+              color: isEcon ? '#92400E' : '#1E3A8A',
+              border: isEcon ? '1px solid #FDE68A' : '1px solid #BFD3F2'
+            }}>
+              {proposal.category}
+            </span>
             {proposal.article_reference && (
-              <span style={{ fontSize: '11px', fontWeight: 600, color: '#94A3B8' }}>{proposal.article_reference}</span>
+              <span style={{ fontSize: '11px', fontWeight: 600, color: '#94A3B8' }}>
+                {proposal.article_reference}{proposal.section ? ` · § ${proposal.section}` : ''}
+              </span>
             )}
             <span style={{ fontSize: '15px', fontWeight: 700, color: '#0F172A' }}>{proposal.title}</span>
             <span style={{ fontSize: '11px', fontWeight: 600, padding: '2px 8px', borderRadius: '20px', background: sc.bg, color: sc.color, border: `1px solid ${sc.border}` }}>
               {proposal.status}
             </span>
-            <span style={{ fontSize: '11px', color: '#94A3B8' }}>{proposal.category}</span>
-            {proposal.proposed_by && <span style={{ fontSize: '11px', color: '#94A3B8' }}>· by {proposal.proposed_by}</span>}
+            {proposal.priority && (
+              <span
+                aria-label="Key issue"
+                title="Key issue"
+                style={{ display: 'inline-block', width: 8, height: 8, background: '#92400E', transform: 'rotate(45deg)', borderRadius: 1, flexShrink: 0 }}
+              />
+            )}
+          </div>
+          <div style={{ fontSize: '12px', color: '#64748B', marginTop: '2px' }}>
+            {isEcon ? (econSummary() ?? 'No values entered') : langSummary()}
           </div>
         </div>
         <div style={{ display: 'flex', gap: '6px', flexShrink: 0, alignItems: 'center' }}>
           <button style={{ ...btnSecondary, fontSize: '12px', padding: '4px 10px' }} onClick={onToggle}>
-            {expanded ? 'Collapse' : 'Positions'}
+            {expanded ? 'Collapse' : 'History'}
           </button>
           {!isLocked && (
             <>
+              <button style={{ ...btnSecondary, fontSize: '12px', padding: '4px 10px' }} onClick={onEdit}>Edit</button>
               <select
                 value={proposal.status}
                 onChange={(e) => onStatusChange(e.target.value as ProposalStatus)}
@@ -1036,6 +1562,7 @@ function ProposalCard({ proposal, sessions, positions, expanded, isLocked, onTog
 
       {expanded && (
         <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid #F1F5F9' }}>
+          <div style={{ fontSize: '11px', fontWeight: 700, color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '10px' }}>Position History</div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '14px' }}>
             {(['Management', 'Labor'] as const).map((side) => {
               const sidePositions = side === 'Management' ? mgmtPositions : laborPositions
@@ -1098,7 +1625,7 @@ function ProposalCard({ proposal, sessions, positions, expanded, isLocked, onTog
                 </div>
               </div>
             ) : (
-              <button style={{ ...btnSecondary, fontSize: '12px', padding: '5px 12px' }} onClick={() => setShowPosForm(true)}>+ Add Position</button>
+              <button style={{ ...btnSecondary, fontSize: '12px', padding: '5px 12px' }} onClick={() => setShowPosForm(true)}>+ Add Position Note</button>
             )
           )}
         </div>

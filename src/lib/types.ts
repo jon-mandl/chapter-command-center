@@ -35,6 +35,9 @@ export interface NegotiationCycle {
   cba_expiration_date: string | null
   proposed_effective_date: string | null
   classification: string
+  neca_chapter_division: string | null
+  unit_size: number | null
+  annual_hours: number | null
   notes: string | null
   created_at: string
   updated_at: string
@@ -63,7 +66,7 @@ export interface SessionAttendee {
 
 export type ProposalCategory = 'Economic' | 'Language'
 export type ProposalStatus = 'Open' | 'TA' | 'Withdrawn' | 'Rejected'
-export type ProposedBy = 'NECA' | 'IBEW'
+export type ProposedBy = 'NECA' | 'IBEW' | 'Union' | 'Management' | 'Joint'
 
 export interface Proposal {
   id: ID
@@ -71,13 +74,34 @@ export interface Proposal {
   title: string
   category: ProposalCategory
   article_reference: string | null
+  // Legacy language fields (still used by LanguageGrid for current_language display)
   current_language: string | null
   proposed_change: string | null
   proposed_by: ProposedBy | null
   status: ProposalStatus
+  sub_status: string | null
   sort_order: number
   priority: boolean
   notes: string | null
+  // Article section (e.g. "5.01")
+  section: string | null
+  // Economic fields
+  unit: string | null
+  format: string | null
+  current_value: number | null
+  union_value: number | null
+  mgmt_value: number | null
+  cost_union: number | null
+  cost_mgmt: number | null
+  // Language fields (new three-position model)
+  current_text: string | null
+  union_change: boolean
+  union_text: string | null
+  mgmt_change: boolean
+  mgmt_text: string | null
+  // Shared metadata
+  rationale: string | null
+  last_movement: string | null
   created_at: string
   updated_at: string
 }

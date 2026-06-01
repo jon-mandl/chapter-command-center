@@ -20,25 +20,20 @@ interface ComparisonSheetProps {
 
 // ─── Summary strip (economic mode) ───────────────────────────────────────────
 
-function EconSummary({ proposals, positions }: {
+function EconSummary({ proposals }: {
   proposals: Proposal[]
-  positions: Record<string, ProposalPosition[]>
+  positions?: Record<string, ProposalPosition[]>
 }): React.JSX.Element {
   const econProps = proposals.filter((p) => p.category === 'Economic')
 
   const counts = { total: econProps.length, open: 0, agreed: 0, tabled: 0 }
   econProps.forEach((p) => { counts[toSheetStatus(p.status)]++ })
 
-  // Rollup: sum of (latestLabor.amount - latestMgmt.amount) for $/hr items
+  // Rollup: sum directly from the cost_union / cost_mgmt fields stored on each proposal
   let unionHr = 0, mgmtHr = 0
   econProps.forEach((p) => {
-    const allPos = positions[p.id] ?? []
-    const mgmt = allPos.filter((x) => x.side === 'Management' && x.unit === '$/hr').sort((a, b) => b.position_date.localeCompare(a.position_date))[0]
-    const labor = allPos.filter((x) => x.side === 'Labor' && x.unit === '$/hr').sort((a, b) => b.position_date.localeCompare(a.position_date))[0]
-    // We need a baseline (earliest management position) for delta calculation
-    const baseline = allPos.filter((x) => x.side === 'Management' && x.unit === '$/hr').sort((a, b) => a.position_date.localeCompare(b.position_date))[0]
-    if (baseline?.amount != null && labor?.amount != null) unionHr += Math.max(0, labor.amount - baseline.amount)
-    if (baseline?.amount != null && mgmt?.amount != null) mgmtHr += Math.max(0, mgmt.amount - baseline.amount)
+    if (p.cost_union != null) unionHr += p.cost_union
+    if (p.cost_mgmt != null) mgmtHr += p.cost_mgmt
   })
   const gapHr = Math.abs(unionHr - mgmtHr)
 
@@ -84,21 +79,18 @@ function EconSummary({ proposals, positions }: {
 
 // ─── Language summary (language mode) ────────────────────────────────────────
 
-function LangSummary({ proposals, positions }: {
+function LangSummary({ proposals }: {
   proposals: Proposal[]
-  positions: Record<string, ProposalPosition[]>
+  positions?: Record<string, ProposalPosition[]>
 }): React.JSX.Element {
   const langProps = proposals.filter((p) => p.category === 'Language')
 
   const counts = { total: langProps.length, open: 0, agreed: 0, tabled: 0, fresh: 0, mgmtOnly: 0, unionOnly: 0 }
   langProps.forEach((p) => {
     counts[toSheetStatus(p.status)]++
-    if (p.current_language == null) counts.fresh++
-    const allPos = positions[p.id] ?? []
-    const hasMgmt = allPos.some((x) => x.side === 'Management')
-    const hasLabor = allPos.some((x) => x.side === 'Labor')
-    if (hasMgmt && !hasLabor) counts.mgmtOnly++
-    if (hasLabor && !hasMgmt) counts.unionOnly++
+    if (p.current_text == null && p.current_language == null) counts.fresh++
+    if (p.mgmt_change && !p.union_change) counts.mgmtOnly++
+    if (p.union_change && !p.mgmt_change) counts.unionOnly++
   })
 
   const Count = ({ n, label, color }: { n: number; label: string; color: string }) => (
@@ -240,8 +232,8 @@ export default function ComparisonSheet({ cycle, union }: ComparisonSheetProps):
 
         {/* Mode-specific summary strip */}
         {mode === 'econ'
-          ? <EconSummary proposals={proposals} positions={positions} />
-          : <LangSummary proposals={proposals} positions={positions} />
+          ? <EconSummary proposals={proposals} />
+          : <LangSummary proposals={proposals} />
         }
       </div>
 

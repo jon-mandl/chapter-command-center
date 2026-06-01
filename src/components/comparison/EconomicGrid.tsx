@@ -1,5 +1,7 @@
 // EconomicGrid — "Wages & Fringes" tab of the Comparison Sheet.
-// Shows one row per Economic proposal with Current / Union / Management positions.
+// Reads current_value / union_value / mgmt_value directly from the proposals
+// table (set via the Proposals tab form). Falls back to scanning proposal_positions
+// for proposals entered before the schema upgrade.
 import React, { useState, useEffect } from 'react'
 import type { Proposal, ProposalPosition, NegotiationSession } from '../../lib/types'
 import { COLS, toSheetStatus, formatValue, formatDelta, formatHrDelta, type EconFmt, type SheetStatus } from '../../lib/comparison-utils'
@@ -7,38 +9,38 @@ import { PriorityFlag, StatusPill, ExpandedDetail, ColHeader, type FilterValue }
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-// One row in the economic grid — derived from a Proposal + its positions.
 interface EconRow {
   proposal: Proposal
   sheetStatus: SheetStatus
-  // Latest position amounts per side (null if none recorded yet)
-  currentAmount: number | null  // most recent Management amount (baseline)
-  unionAmount: number | null    // most recent Labor amount
-  mgmtAmount: number | null     // most recent Management amount (same as current)
-  // The unit string from the most recent position, used for display
+  currentAmount: number | null
+  unionAmount: number | null
+  mgmtAmount: number | null
   unit: string | null
   fmt: EconFmt
-  // Most recent position text per side (for rationale fallback)
-  unionText: string | null
-  mgmtText: string | null
-  // Session label for last movement
-  lastSessionDate: string | null
+  costU: number | null
+  costM: number | null
+  rationale: string | null
+  movement: string | null
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-// Guess a display format from the unit string stored in proposal_positions.
-function inferFmt(unit: string | null): EconFmt {
+function inferFmt(unit: string | null, format: string | null): EconFmt {
+  if (format) {
+    const valid: EconFmt[] = ['usd', 'usdDay', 'pct', 'hrs', 'mi', 'ratio']
+    if ((valid as string[]).includes(format)) return format as EconFmt
+  }
   if (!unit) return 'usd'
   const u = unit.toLowerCase()
   if (u.includes('%')) return 'pct'
-  if (u.includes('/wk') || u.includes('day')) return 'usdDay'
+  if (u.includes('/day') || u.includes('/wk')) return 'usdDay'
   if (u.includes('hr') && !u.includes('$')) return 'hrs'
   if (u.includes('mi')) return 'mi'
+  if (u.includes('ratio')) return 'ratio'
   return 'usd'
 }
 
-// Build EconRow objects from proposals + their loaded positions.
+// Build rows: prefer direct fields, fall back to positions for legacy rows.
 function buildRows(
   proposals: Proposal[],
   positions: Record<string, ProposalPosition[]>,
@@ -47,32 +49,67 @@ function buildRows(
   return proposals
     .filter((p) => p.category === 'Economic')
     .map((p) => {
+      const fmt = inferFmt(p.unit, p.format)
+
+      // Use direct fields when available
+      if (p.current_value != null || p.union_value != null) {
+        const movement = p.last_movement ?? (() => {
+          // Fall back to last position date if no last_movement text
+          const allPos = positions[p.id] ?? []
+          const allSorted = [...allPos].sort((a, b) => b.position_date.localeCompare(a.position_date))
+          const lastPos = allSorted[0] ?? null
+          const lastSession = lastPos?.session_id ? sessions.find((s) => s.id === lastPos.session_id) : null
+          return lastSession
+            ? `Last movement: ${new Date(lastSession.session_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
+            : null
+        })()
+
+        return {
+          proposal: p,
+          sheetStatus: toSheetStatus(p.status),
+          currentAmount: p.current_value,
+          unionAmount: p.union_value,
+          mgmtAmount: p.mgmt_value,
+          unit: p.unit,
+          fmt,
+          costU: p.cost_union,
+          costM: p.cost_mgmt,
+          rationale: p.rationale ?? p.notes,
+          movement,
+        }
+      }
+
+      // Legacy fallback: derive from proposal_positions
       const allPos = positions[p.id] ?? []
       const mgmtPos = allPos.filter((x) => x.side === 'Management').sort((a, b) => b.position_date.localeCompare(a.position_date))
       const laborPos = allPos.filter((x) => x.side === 'Labor').sort((a, b) => b.position_date.localeCompare(a.position_date))
-
       const latestMgmt = mgmtPos[0] ?? null
       const latestLabor = laborPos[0] ?? null
-
-      // For "last movement" — find the most recent position of either side
+      const unit = latestMgmt?.unit ?? latestLabor?.unit ?? p.unit
+      const legacyFmt = inferFmt(unit, p.format)
       const allSorted = [...allPos].sort((a, b) => b.position_date.localeCompare(a.position_date))
       const lastPos = allSorted[0] ?? null
       const lastSession = lastPos?.session_id ? sessions.find((s) => s.id === lastPos.session_id) : null
 
-      const unit = latestMgmt?.unit ?? latestLabor?.unit ?? null
-      const fmt = inferFmt(unit)
+      const cur = latestMgmt?.amount ?? null
+      const uni = latestLabor?.amount ?? null
+      const mgmt = latestMgmt?.amount ?? null
+      const isHr = unit === '$/hr'
 
       return {
         proposal: p,
         sheetStatus: toSheetStatus(p.status),
-        currentAmount: latestMgmt?.amount ?? null,
-        unionAmount: latestLabor?.amount ?? null,
-        mgmtAmount: latestMgmt?.amount ?? null,
+        currentAmount: cur,
+        unionAmount: uni,
+        mgmtAmount: mgmt,
         unit,
-        fmt,
-        unionText: latestLabor?.position_text ?? null,
-        mgmtText: latestMgmt?.position_text ?? null,
-        lastSessionDate: lastSession?.session_date ?? null,
+        fmt: legacyFmt,
+        costU: isHr && uni != null && cur != null ? uni - cur : null,
+        costM: isHr && mgmt != null && cur != null ? mgmt - cur : null,
+        rationale: p.notes,
+        movement: lastSession
+          ? `Last movement: ${new Date(lastSession.session_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
+          : latestMgmt?.position_text ?? latestLabor?.position_text ?? null,
       }
     })
 }
@@ -102,21 +139,21 @@ export default function EconomicGrid({ proposals, positions, sessions, filter, o
   const [sort, setSort] = useState<SortMode>('article')
   const [openRow, setOpenRow] = useState<string | null>(null)
 
-  // Close accordion when filter changes
   useEffect(() => { setOpenRow(null) }, [filter])
 
   const econProposals = proposals.filter((p) => p.category === 'Economic')
 
-  // Trigger position loading for all economic proposals on mount
+  // Load positions for legacy rows (those without direct fields)
   useEffect(() => {
-    econProposals.forEach((p) => { onLoadPositions(p.id) })
+    econProposals
+      .filter((p) => p.current_value == null && p.union_value == null)
+      .forEach((p) => { onLoadPositions(p.id) })
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [proposals])
 
   const allRows = buildRows(econProposals, positions, sessions)
   const passFilter = (r: EconRow) => filter === 'all' || r.sheetStatus === filter
 
-  // Build the ordered row list based on sort mode
   type DisplayRow =
     | { kind: 'divider'; article: string; count: number; key: string }
     | { kind: 'item'; row: EconRow; key: string }
@@ -124,7 +161,6 @@ export default function EconomicGrid({ proposals, positions, sessions, filter, o
   let displayRows: DisplayRow[] = []
 
   if (sort === 'article') {
-    // Group by article_reference
     const byArticle = new Map<string, EconRow[]>()
     allRows.forEach((r) => {
       const art = r.proposal.article_reference ?? 'Other'
@@ -170,6 +206,8 @@ export default function EconomicGrid({ proposals, positions, sessions, filter, o
     >{label}</button>
   )
 
+  const isEmpty = displayRows.length === 0
+
   return (
     <div>
       {/* Sort toolbar */}
@@ -187,143 +225,140 @@ export default function EconomicGrid({ proposals, positions, sessions, filter, o
 
       {/* Table */}
       <div style={{ padding: '16px 28px 28px' }}>
-        <div style={{ background: '#fff', border: '1px solid #E2E8F0', borderRadius: 8, overflow: 'hidden' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
-            <colgroup>
-              <col style={{ width: '26%' }} />
-              <col style={{ width: '15%' }} />
-              <col style={{ width: '15%' }} />
-              <col style={{ width: '15%' }} />
-              <col style={{ width: '14%' }} />
-              <col style={{ width: '15%' }} />
-            </colgroup>
-            <thead>
-              <tr>
-                <th scope="col" style={thBase}>Item</th>
-                <ColHeader col={COLS.cur} sub="in effect" />
-                <ColHeader col={COLS.uni} sub="proposal" />
-                <ColHeader col={COLS.mgmt} sub="counter" />
-                <th scope="col" style={thBase}>Δ cost / hr</th>
-                <th scope="col" style={thBase}>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {displayRows.length === 0 && (
+        {isEmpty && econProposals.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: '48px 24px' }}>
+            <div style={{ fontSize: 13, color: '#94A3B8', marginBottom: 8 }}>No economic items match this filter.</div>
+            <div style={{ fontSize: 12, color: '#CBD5E1' }}>Add proposals on the Proposals tab to see them compared here.</div>
+          </div>
+        ) : (
+          <div style={{ background: '#fff', border: '1px solid #E2E8F0', borderRadius: 8, overflow: 'hidden' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
+              <colgroup>
+                <col style={{ width: '26%' }} />
+                <col style={{ width: '15%' }} />
+                <col style={{ width: '15%' }} />
+                <col style={{ width: '15%' }} />
+                <col style={{ width: '14%' }} />
+                <col style={{ width: '15%' }} />
+              </colgroup>
+              <thead>
                 <tr>
-                  <td colSpan={6} style={{ padding: '32px', textAlign: 'center', fontSize: 13, color: '#94A3B8' }}>
-                    No economic items match this filter.
-                  </td>
+                  <th scope="col" style={thBase}>Item</th>
+                  <ColHeader col={COLS.cur} sub="in effect" />
+                  <ColHeader col={COLS.uni} sub="proposal" />
+                  <ColHeader col={COLS.mgmt} sub="counter" />
+                  <th scope="col" style={thBase}>Δ cost / hr</th>
+                  <th scope="col" style={thBase}>Status</th>
                 </tr>
-              )}
-              {displayRows.map((r) => {
-                if (r.kind === 'divider') {
-                  return (
-                    <tr key={r.key}>
-                      <td colSpan={6} style={{ padding: '9px 14px', background: '#F8FAFC', borderTop: '1px solid #E2E8F0', borderBottom: '1px solid #E2E8F0' }}>
-                        <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#475569' }}>{r.article}</span>
-                        <span style={{ fontSize: 11, color: '#94A3B8', marginLeft: 8 }}>{r.count} {r.count === 1 ? 'item' : 'items'}</span>
-                      </td>
-                    </tr>
-                  )
-                }
-
-                const { row } = r
-                const { proposal: p, sheetStatus, currentAmount, unionAmount, mgmtAmount, fmt } = row
-                const isOpen = openRow === p.id
-
-                // Deltas vs current (Management baseline)
-                const uniDelta = (unionAmount != null && currentAmount != null)
-                  ? formatDelta(unionAmount - currentAmount, fmt)
-                  : null
-                const mgmtDelta = (mgmtAmount != null && currentAmount != null)
-                  ? formatDelta(mgmtAmount - currentAmount, fmt)
-                  : null
-
-                // $/hr cost deltas — we use the raw amount difference as the cost delta
-                // when unit is $/hr. For other unit types we show "work rule".
-                const isHrUnit = row.unit === '$/hr'
-                const costU = (isHrUnit && unionAmount != null && currentAmount != null) ? unionAmount - currentAmount : null
-                const costM = (isHrUnit && mgmtAmount != null && currentAmount != null) ? mgmtAmount - currentAmount : null
-
-                // Build "last movement" text from the latest position
-                const movement = row.lastSessionDate
-                  ? `Last movement: ${new Date(row.lastSessionDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
-                  : row.mgmtText ?? row.unionText ?? null
-
-                return (
-                  <React.Fragment key={r.key}>
-                    <tr
-                      onClick={() => toggleRow(p.id)}
-                      style={{ cursor: 'pointer', background: isOpen ? '#FBFCFE' : '#fff' }}
-                    >
-                      {/* Item name */}
-                      <td style={{ padding: '9px 14px', borderBottom: isOpen ? 'none' : '1px solid #F1F5F9', verticalAlign: 'top' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                          {p.priority && <PriorityFlag />}
-                          <span style={{ fontSize: 13, fontWeight: 600, color: '#0F172A' }}>{p.title}</span>
-                        </div>
-                        <div style={{ fontSize: 11, color: '#94A3B8', marginTop: 2 }}>
-                          {p.article_reference && `${p.article_reference} · `}
-                          {row.unit ?? '$/hr'}
-                          {p.proposed_by && ` · ${p.proposed_by} proposal`}
-                        </div>
-                      </td>
-
-                      {/* Current (Management baseline) */}
-                      <td style={{ padding: '9px 14px', background: COLS.cur.bg, borderLeft: `1px solid ${COLS.cur.line}`, borderRight: `1px solid ${COLS.cur.line}`, borderBottom: isOpen ? 'none' : '1px solid #F1F5F9' }}>
-                        <div style={{ fontSize: 14, fontWeight: 700, color: '#0F172A', fontVariantNumeric: 'tabular-nums' }}>
-                          {currentAmount != null ? formatValue(currentAmount, fmt) : '—'}
-                        </div>
-                      </td>
-
-                      {/* Union */}
-                      <td style={{ padding: '9px 14px', background: COLS.uni.bg, borderLeft: `1px solid ${COLS.uni.line}`, borderRight: `1px solid ${COLS.uni.line}`, borderBottom: isOpen ? 'none' : '1px solid #F1F5F9' }}>
-                        <div style={{ fontSize: 14, fontWeight: 700, color: COLS.uni.accent, fontVariantNumeric: 'tabular-nums' }}>
-                          {unionAmount != null ? formatValue(unionAmount, fmt) : '—'}
-                        </div>
-                        {uniDelta && <div style={{ fontSize: 11, color: COLS.uni.accent, marginTop: 1, fontVariantNumeric: 'tabular-nums' }}>{uniDelta}</div>}
-                      </td>
-
-                      {/* Management */}
-                      <td style={{ padding: '9px 14px', background: COLS.mgmt.bg, borderLeft: `1px solid ${COLS.mgmt.line}`, borderRight: `1px solid ${COLS.mgmt.line}`, borderBottom: isOpen ? 'none' : '1px solid #F1F5F9' }}>
-                        <div style={{ fontSize: 14, fontWeight: 700, color: COLS.mgmt.accent, fontVariantNumeric: 'tabular-nums' }}>
-                          {mgmtAmount != null ? formatValue(mgmtAmount, fmt) : '—'}
-                        </div>
-                        {mgmtDelta && <div style={{ fontSize: 11, color: COLS.mgmt.accent, marginTop: 1, fontVariantNumeric: 'tabular-nums' }}>{mgmtDelta}</div>}
-                      </td>
-
-                      {/* Δ cost / hr */}
-                      <td style={{ padding: '9px 14px', borderBottom: isOpen ? 'none' : '1px solid #F1F5F9', verticalAlign: 'top' }}>
-                        {costU == null && costM == null ? (
-                          <span style={{ fontSize: 12, color: '#94A3B8' }}>work rule</span>
-                        ) : (
-                          <div style={{ fontVariantNumeric: 'tabular-nums' }}>
-                            <div style={{ fontSize: 12, color: COLS.uni.accent, fontWeight: 600 }}>U {formatHrDelta(costU)}</div>
-                            <div style={{ fontSize: 12, color: COLS.mgmt.accent, fontWeight: 600, marginTop: 1 }}>M {formatHrDelta(costM)}</div>
-                          </div>
-                        )}
-                      </td>
-
-                      {/* Status */}
-                      <td style={{ padding: '9px 14px', borderBottom: isOpen ? 'none' : '1px solid #F1F5F9', verticalAlign: 'top' }}>
-                        <StatusPill status={sheetStatus} />
-                      </td>
-                    </tr>
-
-                    {/* Expanded detail */}
-                    {isOpen && (
-                      <tr>
-                        <td colSpan={6} style={{ padding: '0 14px 14px', background: '#FBFCFE', borderBottom: '1px solid #F1F5F9' }}>
-                          <ExpandedDetail note={p.notes} movement={movement} />
+              </thead>
+              <tbody>
+                {isEmpty && (
+                  <tr>
+                    <td colSpan={6} style={{ padding: '32px', textAlign: 'center', fontSize: 13, color: '#94A3B8' }}>
+                      No economic items match this filter.
+                    </td>
+                  </tr>
+                )}
+                {displayRows.map((r) => {
+                  if (r.kind === 'divider') {
+                    return (
+                      <tr key={r.key}>
+                        <td colSpan={6} style={{ padding: '9px 14px', background: '#F8FAFC', borderTop: '1px solid #E2E8F0', borderBottom: '1px solid #E2E8F0' }}>
+                          <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#475569' }}>{r.article}</span>
+                          <span style={{ fontSize: 11, color: '#94A3B8', marginLeft: 8 }}>{r.count} {r.count === 1 ? 'item' : 'items'}</span>
                         </td>
                       </tr>
-                    )}
-                  </React.Fragment>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
+                    )
+                  }
+
+                  const { row } = r
+                  const { proposal: p, sheetStatus, currentAmount, unionAmount, mgmtAmount, fmt, costU, costM } = row
+                  const isOpen = openRow === p.id
+
+                  const uniDelta = (unionAmount != null && currentAmount != null)
+                    ? formatDelta(unionAmount - currentAmount, fmt)
+                    : null
+                  const mgmtDelta = (mgmtAmount != null && currentAmount != null)
+                    ? formatDelta(mgmtAmount - currentAmount, fmt)
+                    : null
+
+                  const showCost = costU != null || costM != null
+
+                  return (
+                    <React.Fragment key={r.key}>
+                      <tr
+                        onClick={() => toggleRow(p.id)}
+                        style={{ cursor: 'pointer', background: isOpen ? '#FBFCFE' : '#fff' }}
+                      >
+                        {/* Item name */}
+                        <td style={{ padding: '9px 14px', borderBottom: isOpen ? 'none' : '1px solid #F1F5F9', verticalAlign: 'top' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            {p.priority && <PriorityFlag />}
+                            <span style={{ fontSize: 13, fontWeight: 600, color: '#0F172A' }}>{p.title}</span>
+                          </div>
+                          <div style={{ fontSize: 11, color: '#94A3B8', marginTop: 2 }}>
+                            {p.article_reference && `${p.article_reference}${p.section ? ` · § ${p.section}` : ''} · `}
+                            {row.unit ?? '$/hr'}
+                            {p.proposed_by && ` · ${p.proposed_by} proposal`}
+                          </div>
+                        </td>
+
+                        {/* Current */}
+                        <td style={{ padding: '9px 14px', background: COLS.cur.bg, borderLeft: `1px solid ${COLS.cur.line}`, borderRight: `1px solid ${COLS.cur.line}`, borderBottom: isOpen ? 'none' : '1px solid #F1F5F9' }}>
+                          <div style={{ fontSize: 14, fontWeight: 700, color: '#0F172A', fontVariantNumeric: 'tabular-nums' }}>
+                            {currentAmount != null ? formatValue(currentAmount, fmt) : '—'}
+                          </div>
+                        </td>
+
+                        {/* Union */}
+                        <td style={{ padding: '9px 14px', background: COLS.uni.bg, borderLeft: `1px solid ${COLS.uni.line}`, borderRight: `1px solid ${COLS.uni.line}`, borderBottom: isOpen ? 'none' : '1px solid #F1F5F9' }}>
+                          <div style={{ fontSize: 14, fontWeight: 700, color: COLS.uni.accent, fontVariantNumeric: 'tabular-nums' }}>
+                            {unionAmount != null ? formatValue(unionAmount, fmt) : '—'}
+                          </div>
+                          {uniDelta && <div style={{ fontSize: 11, color: COLS.uni.accent, marginTop: 1, fontVariantNumeric: 'tabular-nums' }}>{uniDelta}</div>}
+                        </td>
+
+                        {/* Management */}
+                        <td style={{ padding: '9px 14px', background: COLS.mgmt.bg, borderLeft: `1px solid ${COLS.mgmt.line}`, borderRight: `1px solid ${COLS.mgmt.line}`, borderBottom: isOpen ? 'none' : '1px solid #F1F5F9' }}>
+                          <div style={{ fontSize: 14, fontWeight: 700, color: COLS.mgmt.accent, fontVariantNumeric: 'tabular-nums' }}>
+                            {mgmtAmount != null ? formatValue(mgmtAmount, fmt) : '—'}
+                          </div>
+                          {mgmtDelta && <div style={{ fontSize: 11, color: COLS.mgmt.accent, marginTop: 1, fontVariantNumeric: 'tabular-nums' }}>{mgmtDelta}</div>}
+                        </td>
+
+                        {/* Δ cost / hr */}
+                        <td style={{ padding: '9px 14px', borderBottom: isOpen ? 'none' : '1px solid #F1F5F9', verticalAlign: 'top' }}>
+                          {!showCost ? (
+                            <span style={{ fontSize: 12, color: '#94A3B8' }}>work rule</span>
+                          ) : (
+                            <div style={{ fontVariantNumeric: 'tabular-nums' }}>
+                              <div style={{ fontSize: 12, color: COLS.uni.accent, fontWeight: 600 }}>U {formatHrDelta(costU)}</div>
+                              <div style={{ fontSize: 12, color: COLS.mgmt.accent, fontWeight: 600, marginTop: 1 }}>M {formatHrDelta(costM)}</div>
+                            </div>
+                          )}
+                        </td>
+
+                        {/* Status */}
+                        <td style={{ padding: '9px 14px', borderBottom: isOpen ? 'none' : '1px solid #F1F5F9', verticalAlign: 'top' }}>
+                          <StatusPill status={sheetStatus} isCounter={p.sub_status === 'counter'} />
+                        </td>
+                      </tr>
+
+                      {/* Expanded detail */}
+                      {isOpen && (
+                        <tr>
+                          <td colSpan={6} style={{ padding: '0 14px 14px', background: '#FBFCFE', borderBottom: '1px solid #F1F5F9' }}>
+                            <ExpandedDetail note={row.rationale} movement={row.movement} />
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     </div>
   )
