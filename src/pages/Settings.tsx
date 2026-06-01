@@ -26,7 +26,7 @@ const ROLE_COLOR: Record<string, { bg: string; color: string }> = {
 
 function Section({ title, children }: { title: string; children: React.ReactNode }): React.JSX.Element {
   return (
-    <div style={{ background: '#fff', border: '1px solid #E2E8F0', borderRadius: '8px', padding: '24px', marginBottom: '20px', maxWidth: '720px' }}>
+    <div style={{ background: '#fff', border: '1px solid #E2E8F0', borderRadius: '8px', padding: '24px', marginBottom: '20px', maxWidth: 'min(720px, 100%)' }}>
       <div style={{ fontSize: '14px', fontWeight: 700, color: '#0F172A', marginBottom: '20px', paddingBottom: '12px', borderBottom: '1px solid #F1F5F9' }}>
         {title}
       </div>
@@ -122,7 +122,7 @@ function ProfileTab(): React.JSX.Element {
         <Field label="Address Line 2">
           <input style={inputStyle} value={addressLine2} onChange={(e) => setAddressLine2(e.target.value)} autoComplete="address-line2" />
         </Field>
-        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: '12px' }}>
+        <div className="grid-form-1-1-1">
           <Field label="City">
             <input style={inputStyle} value={city} onChange={(e) => setCity(e.target.value)} autoComplete="address-level2" />
           </Field>
@@ -302,7 +302,7 @@ export default function Settings(): React.JSX.Element {
   }
 
   return (
-    <div style={{ padding: '28px 32px' }}>
+    <div className="page-content-wide">
       <h1 style={{ fontSize: '26px', fontWeight: 700, color: '#0F172A', margin: 0 }}>Settings</h1>
       <p style={{ fontSize: '13px', color: '#64748B', margin: '6px 0 24px' }}>Manage your profile and account.</p>
 

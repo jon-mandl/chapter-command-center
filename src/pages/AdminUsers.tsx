@@ -262,7 +262,7 @@ export default function AdminUsers(): React.JSX.Element {
       {showChapterForm && (
         <div style={{ ...card, borderColor: '#1E3A8A', borderWidth: '1.5px', marginBottom: '20px' }}>
           <div style={{ fontSize: '15px', fontWeight: 700, color: '#0F172A', marginBottom: '16px' }}>New Chapter</div>
-          <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: '12px', marginBottom: '16px' }}>
+          <div className="grid-form-1-1-1" style={{ marginBottom: '16px' }}>
             <div>
               <label style={labelStyle}>Name <span style={{ color: '#ef4444' }}>*</span></label>
               <input style={inputStyle} value={chapterForm.name} autoFocus onChange={(e) => setChapterForm({ ...chapterForm, name: e.target.value })} placeholder="e.g. NECA Chapter 51" />
@@ -293,7 +293,7 @@ export default function AdminUsers(): React.JSX.Element {
             They'll get an email with a link to set their password. The chapter and role you pick
             here are applied automatically when they accept.
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '2fr 1.5fr 1fr', gap: '12px', marginBottom: '16px' }}>
+          <div className="grid-form-1-1-1" style={{ marginBottom: '16px' }}>
             <div>
               <label style={labelStyle}>Email <span style={{ color: '#ef4444' }}>*</span></label>
               <input
@@ -608,7 +608,7 @@ function UserDetail({ user }: { user: UserRow }): React.JSX.Element {
     ['ZIP',       user.zip],
   ]
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '12px 24px' }}>
+    <div className="grid-3col">
       {lines.map(([label, value]) => (
         <div key={label}>
           <div style={{ fontSize: '10px', fontWeight: 600, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '2px' }}>{label}</div>

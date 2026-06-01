@@ -140,8 +140,8 @@ export default function Negotiations({ onOpenNegotiation, onNavigateToLocalUnion
   }
 
   return (
-    <div style={{ padding: '28px 32px', maxWidth: '960px', margin: '0 auto' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '24px' }}>
+    <div className="page-content">
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '24px', flexWrap: 'wrap', gap: '12px' }}>
         <div>
           <h1 style={{ fontSize: '26px', fontWeight: 700, color: '#0F172A', margin: 0 }}>Negotiations</h1>
           <p style={{ fontSize: '13px', color: '#64748B', margin: '6px 0 0' }}>Manage bargaining cycles with each local union.</p>
@@ -163,7 +163,7 @@ export default function Negotiations({ onOpenNegotiation, onNavigateToLocalUnion
             </div>
           ) : (
             <>
-              <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '12px', marginBottom: '12px' }}>
+              <div className="grid-form-2-1" style={{ marginBottom: '12px' }}>
                 <div>
                   <label style={labelStyle}>Name <span style={{ color: '#ef4444' }}>*</span></label>
                   <input style={inputStyle} value={form.name} autoFocus onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g. 2026 IBEW Local 11 Inside Wireman CBA" />
@@ -178,7 +178,7 @@ export default function Negotiations({ onOpenNegotiation, onNavigateToLocalUnion
                   </select>
                 </div>
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
+              <div className="grid-2col" style={{ marginBottom: '12px' }}>
                 <div>
                   <label style={labelStyle}>Classification <span style={{ color: '#ef4444' }}>*</span></label>
                   {classifications.length > 0 ? (
@@ -227,7 +227,8 @@ export default function Negotiations({ onOpenNegotiation, onNavigateToLocalUnion
         </div>
       ) : cycles.length > 0 && (
         <div style={{ background: '#fff', border: '1px solid #E2E8F0', borderRadius: '10px', overflow: 'hidden' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <div className="table-scroll">
+          <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '560px' }}>
             <thead>
               <tr>
                 <th style={thStyle} scope="col">Name</th>
@@ -272,6 +273,7 @@ export default function Negotiations({ onOpenNegotiation, onNavigateToLocalUnion
               })}
             </tbody>
           </table>
+          </div>
         </div>
       )}
 

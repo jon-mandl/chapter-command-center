@@ -277,9 +277,9 @@ export default function MembersCommittees(): React.JSX.Element {
   }
 
   return (
-    <div style={{ display: 'flex', height: '100%', minHeight: 0 }}>
+    <div className="split-panel">
       {/* Left: committees */}
-      <div style={{ width: '300px', flexShrink: 0, borderRight: '1px solid #E2E8F0', display: 'flex', flexDirection: 'column', background: '#fff' }}>
+      <div className="split-panel-list" style={{ width: '300px' }}>
         <div style={{ padding: '20px', borderBottom: '1px solid #E2E8F0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <span style={{ fontSize: '15px', fontWeight: 700, color: '#0F172A' }}>Committees</span>
           <button style={{ ...btnPrimary, fontSize: '12px', padding: '5px 12px' }} onClick={startCreateCommittee}>+ Add</button>
@@ -315,7 +315,7 @@ export default function MembersCommittees(): React.JSX.Element {
       </div>
 
       {/* Right: detail */}
-      <div style={{ flex: 1, overflowY: 'auto', padding: '28px 32px' }}>
+      <div className="split-panel-detail" style={{ padding: '28px 32px' }}>
         {showCommitteeForm ? (
           <div style={{ ...card, maxWidth: '600px', borderColor: '#1E3A8A', borderWidth: '1.5px' }}>
             <div style={{ fontSize: '15px', fontWeight: 700, color: '#0F172A', marginBottom: '20px' }}>
@@ -365,7 +365,7 @@ export default function MembersCommittees(): React.JSX.Element {
                   <div style={{ fontSize: '13px', fontWeight: 600, color: '#0F172A', marginBottom: '12px' }}>
                     {editingMember ? `Edit ${editingMember.member_name}` : 'New Member'}
                   </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '10px' }}>
+                  <div className="grid-2col" style={{ marginBottom: '10px' }}>
                     <div>
                       <label style={labelStyle}>Name <span style={{ color: '#ef4444' }}>*</span></label>
                       <input style={inputStyle} value={memberForm.member_name} autoFocus onChange={(e) => setMemberForm({ ...memberForm, member_name: e.target.value })} />
@@ -378,7 +378,7 @@ export default function MembersCommittees(): React.JSX.Element {
                       <label style={labelStyle}>Role</label>
                       <input style={inputStyle} value={memberForm.role} onChange={(e) => setMemberForm({ ...memberForm, role: e.target.value })} placeholder="e.g. Chair, Member" />
                     </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                    <div className="grid-2col">
                       <div>
                         <label style={labelStyle}>Term Start</label>
                         <input type="date" style={inputStyle} value={memberForm.term_start} onChange={(e) => setMemberForm({ ...memberForm, term_start: e.target.value })} />

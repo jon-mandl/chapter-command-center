@@ -106,8 +106,8 @@ export default function NegotiationDetail({ negotiationId, onBack }: {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      <div style={{ background: '#fff', borderBottom: '1px solid #E2E8F0', padding: '16px 32px', flexShrink: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
+      <div style={{ background: '#fff', borderBottom: '1px solid #E2E8F0', padding: '16px 16px 0', flexShrink: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px', flexWrap: 'wrap' }}>
           <button
             onClick={onBack}
             style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'none', border: 'none', cursor: 'pointer', color: '#64748B', fontSize: '13px', padding: 0 }}
@@ -128,7 +128,7 @@ export default function NegotiationDetail({ negotiationId, onBack }: {
           )}
         </div>
 
-        <div style={{ display: 'flex', gap: '0' }}>
+        <div style={{ display: 'flex', gap: '0', overflowX: 'auto' }}>
           {TABS.map((t) => (
             <button
               key={t.id}
@@ -262,14 +262,14 @@ function DashboardTab({ cycle, onTabChange }: {
   const resolvedTotal = (proposals?.ta ?? 0) + (proposals?.withdrawn ?? 0) + (proposals?.rejected ?? 0)
 
   return (
-    <div style={{ padding: '28px 32px', maxWidth: '880px' }}>
+    <div className="page-content">
       <div style={{ marginBottom: '24px' }}>
         <h2 style={{ fontSize: '18px', fontWeight: 700, color: '#0F172A', margin: '0 0 4px' }}>Negotiation Dashboard</h2>
         <p style={{ fontSize: '13px', color: '#64748B', margin: 0 }}>At-a-glance summary of progress for {cycle.name}.</p>
       </div>
 
       {/* Top stat row */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '14px', marginBottom: '24px' }}>
+      <div className="grid-stats" style={{ marginBottom: '24px' }}>
         <StatCard label="Total Proposals" value={proposals?.total ?? 0} />
         <StatCard label="Tentatively Agreed" value={proposals?.ta ?? 0} accent="#059669" sub={`${taRate}% of all proposals`} />
         <StatCard label="Still Open" value={proposals?.open ?? 0} accent="#4F46E5" />
@@ -299,7 +299,7 @@ function DashboardTab({ cycle, onTabChange }: {
       </div>
 
       {/* Two-column detail cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
+      <div className="grid-2col" style={{ marginBottom: '16px' }}>
         {/* Proposal breakdown */}
         <div style={{ background: '#fff', border: '1px solid #E2E8F0', borderRadius: '8px', padding: '20px 24px' }}>
           <div style={{ fontSize: '13px', fontWeight: 700, color: '#0F172A', marginBottom: '14px' }}>Proposals by Type</div>
@@ -327,7 +327,7 @@ function DashboardTab({ cycle, onTabChange }: {
         {/* Sessions summary */}
         <div style={{ background: '#fff', border: '1px solid #E2E8F0', borderRadius: '8px', padding: '20px 24px' }}>
           <div style={{ fontSize: '13px', fontWeight: 700, color: '#0F172A', marginBottom: '14px' }}>Sessions Summary</div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
+          <div className="grid-2col" style={{ marginBottom: '16px' }}>
             <div>
               <div style={{ fontSize: '11px', fontWeight: 600, color: '#64748B', textTransform: 'uppercase' as const, letterSpacing: '0.06em', marginBottom: '4px' }}>Sessions Held</div>
               <div style={{ fontSize: '24px', fontWeight: 700, color: '#0F172A' }}>{sessions?.total ?? 0}</div>
@@ -351,7 +351,7 @@ function DashboardTab({ cycle, onTabChange }: {
       {/* Key dates */}
       <div style={{ background: '#fff', border: '1px solid #E2E8F0', borderRadius: '8px', padding: '20px 24px', marginBottom: '16px' }}>
         <div style={{ fontSize: '13px', fontWeight: 700, color: '#0F172A', marginBottom: '14px' }}>Key Dates</div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '20px' }}>
+        <div className="grid-3col">
           {[
             { label: 'CBA Expiration', value: formatDate(cycle.cba_expiration_date) },
             { label: 'Proposed Effective', value: formatDate(cycle.proposed_effective_date) },
@@ -545,8 +545,8 @@ function OverviewTab({ cycle, unions, onUpdate, toastError, toastSuccess, onTabC
   }
 
   return (
-    <div style={{ padding: '28px 32px', maxWidth: '720px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '24px' }}>
+    <div className="page-content">
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '24px', flexWrap: 'wrap', gap: '12px' }}>
         <h1 style={{ fontSize: '20px', fontWeight: 700, color: '#0F172A', margin: 0 }}>{cycle.name}</h1>
         {!editing && <button style={btnSecondary} onClick={() => void handleEditOpen()}>Edit</button>}
       </div>
@@ -554,7 +554,7 @@ function OverviewTab({ cycle, unions, onUpdate, toastError, toastSuccess, onTabC
       {editing ? (
         <div style={metaCard}>
           <div style={{ fontSize: '14px', fontWeight: 700, color: '#0F172A', marginBottom: '16px' }}>Edit Negotiation</div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: '14px' }}>
+          <div className="grid-2col" style={{ marginBottom: '14px' }}>
             <div style={{ gridColumn: '1 / -1' }}>
               <label style={labelStyle}>Name <span style={{ color: '#ef4444' }}>*</span></label>
               <input style={inputStyle} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
@@ -605,7 +605,7 @@ function OverviewTab({ cycle, unions, onUpdate, toastError, toastSuccess, onTabC
 
           <div style={{ borderTop: '1px solid #F1F5F9', paddingTop: '14px', marginBottom: '14px' }}>
             <div style={{ fontSize: '11px', fontWeight: 700, color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '12px' }}>Economic Parameters</div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+            <div className="grid-2col">
               <div>
                 <label style={labelStyle}>Bargaining Unit Size</label>
                 <input style={inputStyle} type="number" min="1" value={form.unit_size} onChange={(e) => setForm({ ...form, unit_size: e.target.value })} placeholder="e.g. 240" />
@@ -632,7 +632,7 @@ function OverviewTab({ cycle, unions, onUpdate, toastError, toastSuccess, onTabC
       ) : (
         <>
           {/* Row 1: Core identity */}
-          <div style={{ ...metaCard, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px 40px' }}>
+          <div style={{ ...metaCard }} className="grid-2col">
             <MetaField label="Local Union" value={unionLabel(cycle.local_union_id)} />
             <MetaField label="Classification" value={cycle.classification} />
             <MetaField label="NECA Chapter / Division" value={cycle.neca_chapter_division} />
@@ -824,10 +824,10 @@ function SessionsTab({ cycleId, isLocked }: { cycleId: ID; isLocked: boolean }):
   if (loading) return <div style={{ padding: '24px', fontSize: '13px', color: '#64748B' }}>Loading…</div>
 
   return (
-    <div style={{ padding: '24px 32px', maxWidth: '800px' }}>
+    <div className="page-content">
       {error && <div style={errorBox}>{error}</div>}
 
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '10px' }}>
         <div style={{ fontSize: '15px', fontWeight: 700, color: '#0F172A' }}>
           {sessions.length} {sessions.length === 1 ? 'Session' : 'Sessions'}
         </div>
@@ -839,7 +839,7 @@ function SessionsTab({ cycleId, isLocked }: { cycleId: ID; isLocked: boolean }):
       {showForm && (
         <div style={{ ...card, borderColor: '#1E3A8A', borderWidth: '1.5px', marginBottom: '20px' }}>
           <div style={{ fontSize: '14px', fontWeight: 700, color: '#0F172A', marginBottom: '16px' }}>New Session</div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
+          <div className="grid-2col" style={{ marginBottom: '12px' }}>
             <div>
               <label style={labelStyle}>Session Date <span style={{ color: '#ef4444' }}>*</span></label>
               <input type="date" style={inputStyle} value={form.session_date} onChange={(e) => setForm({ ...form, session_date: e.target.value })} autoFocus />
@@ -876,7 +876,7 @@ function SessionsTab({ cycleId, isLocked }: { cycleId: ID; isLocked: boolean }):
         <div key={session.id} style={{ ...card, marginBottom: '10px' }}>
           {editingSession?.id === session.id ? (
             <div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
+              <div className="grid-2col" style={{ marginBottom: '12px' }}>
                 <div>
                   <label style={labelStyle}>Date</label>
                   <input type="date" style={inputStyle} value={editForm.session_date} onChange={(e) => setEditForm({ ...editForm, session_date: e.target.value })} />
@@ -930,7 +930,7 @@ function SessionsTab({ cycleId, isLocked }: { cycleId: ID; isLocked: boolean }):
 
                   {showAttForm === session.id && (
                     <div style={{ background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: '8px', padding: '12px', marginBottom: '12px' }}>
-                      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: '10px', marginBottom: '10px' }}>
+                      <div className="grid-form-1-1-1" style={{ marginBottom: '10px' }}>
                         <div>
                           <label style={labelStyle}>Name <span style={{ color: '#ef4444' }}>*</span></label>
                           <input style={inputStyle} value={attForm.name} autoFocus onChange={(e) => setAttForm({ ...attForm, name: e.target.value })} />
@@ -959,7 +959,7 @@ function SessionsTab({ cycleId, isLocked }: { cycleId: ID; isLocked: boolean }):
                   {(attendees[session.id] ?? []).length === 0 ? (
                     <div style={{ fontSize: '13px', color: '#94A3B8' }}>No attendees recorded.</div>
                   ) : (
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                    <div className="grid-2col">
                       {(['Management', 'Labor'] as const).map((role) => {
                         const sideAtts = (attendees[session.id] ?? []).filter((a) => a.role === role)
                         if (sideAtts.length === 0) return null
@@ -1328,9 +1328,9 @@ function ProposalsTab({ cycleId, isLocked }: { cycleId: ID; isLocked: boolean })
   // ── Type chooser ──────────────────────────────────────────────────────────
   if (step === 'choose-type') {
     return (
-      <div style={{ padding: '32px', maxWidth: '600px' }}>
+      <div className="page-content">
         <div style={{ fontSize: '14px', fontWeight: 700, color: '#0F172A', marginBottom: '20px' }}>What type of proposal?</div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '24px' }}>
+        <div className="grid-2col" style={{ marginBottom: '24px' }}>
           {([
             { type: 'Economic', title: 'Economic', desc: 'Wages, fringes, contributions, dollar amounts', step: 'economic-form' as ProposalStep },
             { type: 'Language', title: 'Language', desc: 'Contract clauses, work rules, procedures', step: 'language-form' as ProposalStep },
@@ -1360,12 +1360,12 @@ function ProposalsTab({ cycleId, isLocked }: { cycleId: ID; isLocked: boolean })
   if (step === 'economic-form') {
     const isEdit = editingProposal !== null
     return (
-      <div style={{ padding: '28px 32px', maxWidth: '720px' }}>
+      <div className="page-content">
         <div style={{ fontSize: '15px', fontWeight: 700, color: '#0F172A', marginBottom: '20px' }}>
           {isEdit ? 'Edit Economic Proposal' : 'New Economic Proposal'}
         </div>
         <div style={{ background: '#fff', border: '1px solid #E2E8F0', borderRadius: '8px', padding: '24px' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: '14px' }}>
+          <div className="grid-2col" style={{ marginBottom: '14px' }}>
             <div style={{ gridColumn: '1 / -1' }}>
               <label style={labelStyle}>Item Name <span style={{ color: '#ef4444' }}>*</span></label>
               <input style={inputStyle} value={econForm.title} autoFocus onChange={(e) => setEconForm({ ...econForm, title: e.target.value })} placeholder="e.g. Base journeyman wage" />
@@ -1397,7 +1397,7 @@ function ProposalsTab({ cycleId, isLocked }: { cycleId: ID; isLocked: boolean })
 
           <div style={{ borderTop: '1px solid #F1F5F9', paddingTop: '16px', marginBottom: '16px' }}>
             <div style={{ fontSize: '11px', fontWeight: 700, color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '14px' }}>Positions</div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: '14px' }}>
+            <div className="grid-2col" style={{ marginBottom: '14px' }}>
               <div>
                 <label style={labelStyle}>Current Value <span style={{ color: '#ef4444' }}>*</span></label>
                 <input style={inputStyle} type="number" step="any" value={econForm.current_value} onChange={(e) => setEconForm({ ...econForm, current_value: e.target.value })} placeholder="What the contract says now" />
@@ -1426,7 +1426,7 @@ function ProposalsTab({ cycleId, isLocked }: { cycleId: ID; isLocked: boolean })
 
           <div style={{ borderTop: '1px solid #F1F5F9', paddingTop: '16px', marginBottom: '16px' }}>
             <div style={{ fontSize: '11px', fontWeight: 700, color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '14px' }}>Cost Impact (optional)</div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+            <div className="grid-2col">
               <div>
                 <label style={labelStyle}>Union $/hr impact</label>
                 <input style={inputStyle} type="number" step="any" value={econForm.cost_union} onChange={(e) => setEconForm({ ...econForm, cost_union: e.target.value })} placeholder="e.g. 2.50" />
@@ -1440,7 +1440,7 @@ function ProposalsTab({ cycleId, isLocked }: { cycleId: ID; isLocked: boolean })
 
           <div style={{ borderTop: '1px solid #F1F5F9', paddingTop: '16px', marginBottom: '16px' }}>
             <div style={{ fontSize: '11px', fontWeight: 700, color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '14px' }}>Status and Notes</div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: '14px' }}>
+            <div className="grid-2col" style={{ marginBottom: '14px' }}>
               <div>
                 <label style={labelStyle}>Status <span style={{ color: '#ef4444' }}>*</span></label>
                 <select style={inputStyle} value={econForm.status} onChange={(e) => setEconForm({ ...econForm, status: e.target.value as ProposalStatus })}>
@@ -1484,12 +1484,12 @@ function ProposalsTab({ cycleId, isLocked }: { cycleId: ID; isLocked: boolean })
   if (step === 'language-form') {
     const isEdit = editingProposal !== null
     return (
-      <div style={{ padding: '28px 32px', maxWidth: '720px' }}>
+      <div className="page-content">
         <div style={{ fontSize: '15px', fontWeight: 700, color: '#0F172A', marginBottom: '20px' }}>
           {isEdit ? 'Edit Language Proposal' : 'New Language Proposal'}
         </div>
         <div style={{ background: '#fff', border: '1px solid #E2E8F0', borderRadius: '8px', padding: '24px' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: '14px' }}>
+          <div className="grid-2col" style={{ marginBottom: '14px' }}>
             <div style={{ gridColumn: '1 / -1' }}>
               <label style={labelStyle}>Provision Name <span style={{ color: '#ef4444' }}>*</span></label>
               <input style={inputStyle} value={langForm.title} autoFocus onChange={(e) => setLangForm({ ...langForm, title: e.target.value })} placeholder="e.g. Regular working hours" />
@@ -1566,7 +1566,7 @@ function ProposalsTab({ cycleId, isLocked }: { cycleId: ID; isLocked: boolean })
 
           <div style={{ borderTop: '1px solid #F1F5F9', paddingTop: '16px', marginBottom: '16px' }}>
             <div style={{ fontSize: '11px', fontWeight: 700, color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '14px' }}>Status and Notes</div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: '14px' }}>
+            <div className="grid-2col" style={{ marginBottom: '14px' }}>
               <div>
                 <label style={labelStyle}>Status <span style={{ color: '#ef4444' }}>*</span></label>
                 <select style={inputStyle} value={langForm.status} onChange={(e) => setLangForm({ ...langForm, status: e.target.value as ProposalStatus })}>
@@ -1608,7 +1608,7 @@ function ProposalsTab({ cycleId, isLocked }: { cycleId: ID; isLocked: boolean })
 
   // ── Proposal list ─────────────────────────────────────────────────────────
   return (
-    <div style={{ padding: '24px 32px', maxWidth: '900px' }}>
+    <div className="page-content">
       {error && <div style={errorBox}>{error}</div>}
 
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px', flexWrap: 'wrap', gap: '10px' }}>
@@ -1839,7 +1839,7 @@ function ProposalCard({ proposal, sessions, positions, expanded, isLocked, onTog
       {expanded && (
         <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid #F1F5F9' }}>
           <div style={{ fontSize: '11px', fontWeight: 700, color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '10px' }}>Position History</div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '14px' }}>
+          <div className="grid-2col" style={{ marginBottom: '14px' }}>
             {(['Management', 'Labor'] as const).map((side) => {
               const sidePositions = side === 'Management' ? mgmtPositions : laborPositions
               return (
@@ -1867,7 +1867,7 @@ function ProposalCard({ proposal, sessions, positions, expanded, isLocked, onTog
           {!isLocked && (
             showPosForm ? (
               <div style={{ background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: '8px', padding: '12px' }}>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '10px' }}>
+                <div className="grid-2col" style={{ marginBottom: '10px' }}>
                   <div>
                     <label style={labelStyle}>Side</label>
                     <select style={inputStyle} value={posForm.side} onChange={(e) => setPosForm({ ...posForm, side: e.target.value as PositionSide })}>

@@ -211,7 +211,7 @@ export default function ProfileCompletion(): React.JSX.Element {
               />
             </Field>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: '12px' }}>
+            <div className="grid-form-1-1-1">
               <Field label="City">
                 <input
                   style={inputStyle}
@@ -248,7 +248,7 @@ export default function ProfileCompletion(): React.JSX.Element {
           {/* Account info — read-only */}
           <div style={card}>
             <SectionHeader>Account</SectionHeader>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+            <div className="grid-2col">
               <div>
                 <div style={labelStyle}>Chapter</div>
                 <div style={readOnlyValue}>

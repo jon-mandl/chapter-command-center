@@ -85,7 +85,7 @@ export default function MembersServiceCharge(): React.JSX.Element {
   }
 
   return (
-    <div style={{ padding: '28px 32px', maxWidth: '1080px' }}>
+    <div className="page-content-wide" style={{ maxWidth: '1080px', margin: '0 auto' }}>
       <div style={{ marginBottom: '24px' }}>
         <h2 style={{ fontSize: '20px', fontWeight: 700, color: '#0F172A', margin: 0 }}>Service Charge</h2>
         <p style={{ fontSize: '13px', color: '#64748B', margin: '6px 0 0' }}>Per-company hours summary used as the basis for service-charge calculation.</p>
@@ -134,7 +134,8 @@ export default function MembersServiceCharge(): React.JSX.Element {
             {companies.length === 0 ? 'No companies in the directory yet.' : 'No companies match the filter.'}
           </div>
         ) : (
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <div className="table-scroll">
+          <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '480px' }}>
             <thead>
               <tr>
                 <th style={thStyle} scope="col">Company</th>
@@ -179,6 +180,7 @@ export default function MembersServiceCharge(): React.JSX.Element {
               })}
             </tbody>
           </table>
+          </div>
         )}
       </div>
 

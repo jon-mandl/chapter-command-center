@@ -81,13 +81,13 @@ export default function Dashboard({ onNavigate }: DashboardProps): React.JSX.Ele
   const totalHours = hours.reduce((sum, h) => sum + Number(h.total_hours ?? 0), 0)
 
   return (
-    <div style={{ padding: '28px 32px', maxWidth: '960px', margin: '0 auto' }}>
+    <div className="page-content">
       <div style={{ marginBottom: '28px' }}>
         <h1 style={{ fontSize: '26px', fontWeight: 700, color: '#0F172A', margin: 0 }}>Command Center</h1>
         <p style={{ fontSize: '13px', color: '#64748B', margin: '6px 0 0' }}>Overview of your active negotiations and chapter activity</p>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '14px', marginBottom: '20px' }}>
+      <div className="grid-stats">
         <StatCard label="Active Negotiations" value={activeCycles.length} sub={`${cycles.length - activeCycles.length} settled or archived`} onClick={() => onNavigate('negotiations')} />
         <StatCard label="Active Grievances" value={activeGrievances.length} sub={`${grievances.length - activeGrievances.length} closed or withdrawn`} onClick={() => onNavigate('grievances')} />
         <StatCard label="Member Companies" value={companies.length} sub={`${companies.filter((c) => c.status === 'Active').length} active`} onClick={() => onNavigate('members')} />
@@ -108,7 +108,7 @@ export default function Dashboard({ onNavigate }: DashboardProps): React.JSX.Ele
         </div>
       )}
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+      <div className="grid-2col">
         <div style={{ background: '#fff', border: '1px solid #E2E8F0', borderRadius: '10px', overflow: 'hidden' }}>
           <div style={{ padding: '14px 18px', borderBottom: '1px solid #E2E8F0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span style={{ fontSize: '14px', fontWeight: 600, color: '#0F172A' }}>Recent Negotiations</span>

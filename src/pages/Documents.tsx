@@ -195,8 +195,8 @@ export default function Documents(): React.JSX.Element {
   }
 
   return (
-    <div style={{ padding: '28px 32px', maxWidth: '1080px', margin: '0 auto' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '24px', gap: '12px' }}>
+    <div className="page-content-wide" style={{ maxWidth: '1080px', margin: '0 auto' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '24px', gap: '12px', flexWrap: 'wrap' }}>
         <div>
           <h1 style={{ fontSize: '26px', fontWeight: 700, color: '#0F172A', margin: 0 }}>Documents Vault</h1>
           <p style={{ fontSize: '13px', color: '#64748B', margin: '6px 0 0' }}>
@@ -225,7 +225,7 @@ export default function Documents(): React.JSX.Element {
               </div>
             )}
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '12px', marginBottom: '16px' }}>
+          <div className="grid-form-2-1" style={{ marginBottom: '16px' }}>
             <div>
               <label style={labelStyle}>Display Name</label>
               <input style={inputStyle} value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="Defaults to the file name" />
@@ -297,7 +297,8 @@ export default function Documents(): React.JSX.Element {
         </div>
       ) : (
         <div style={{ background: '#fff', border: '1px solid #E2E8F0', borderRadius: '10px', overflow: 'hidden' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <div className="table-scroll">
+          <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '560px' }}>
             <thead>
               <tr>
                 <th style={thStyle} scope="col">Name</th>
@@ -335,6 +336,7 @@ export default function Documents(): React.JSX.Element {
               ))}
             </tbody>
           </table>
+          </div>
         </div>
       )}
 

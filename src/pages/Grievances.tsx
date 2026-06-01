@@ -308,9 +308,9 @@ export default function Grievances(): React.JSX.Element {
   }
 
   return (
-    <div style={{ display: 'flex', height: '100%', minHeight: 0 }}>
+    <div className="split-panel">
       {/* Left: list */}
-      <div style={{ width: '380px', flexShrink: 0, borderRight: '1px solid #E2E8F0', display: 'flex', flexDirection: 'column', background: '#fff' }}>
+      <div className="split-panel-list">
         <div style={{ padding: '20px 20px 12px', borderBottom: '1px solid #E2E8F0' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
             <span style={{ fontSize: '15px', fontWeight: 700, color: '#0F172A' }}>Grievances</span>
@@ -397,7 +397,7 @@ export default function Grievances(): React.JSX.Element {
       </div>
 
       {/* Right: detail / edit / create */}
-      <div style={{ flex: 1, overflowY: 'auto', padding: '28px 32px' }}>
+      <div className="split-panel-detail" style={{ padding: '28px 32px' }}>
         {mode === 'create' || (mode === 'edit' && selected) ? (
           <GrievanceForm
             heading={mode === 'create' ? 'New Grievance' : `Edit ${selected?.title ?? ''}`}
@@ -524,7 +524,7 @@ function GrievanceForm({ heading, form, setForm, companies, unions, saving, save
     <div style={{ ...card, maxWidth: '720px' }}>
       <div style={{ fontSize: '15px', fontWeight: 700, color: '#0F172A', marginBottom: '20px' }}>{heading}</div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '3fr 1fr', gap: '12px', marginBottom: '14px' }}>
+      <div className="grid-form-2-1" style={{ marginBottom: '14px' }}>
         <div>
           <label style={labelStyle}>Title <span style={{ color: '#ef4444' }}>*</span></label>
           <input style={inputStyle} value={form.title} autoFocus onChange={(e) => update('title', e.target.value)} placeholder="Brief summary of the dispute" />
@@ -535,7 +535,7 @@ function GrievanceForm({ heading, form, setForm, companies, unions, saving, save
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '14px' }}>
+      <div className="grid-2col" style={{ marginBottom: '14px' }}>
         <div>
           <label style={labelStyle}>Employer</label>
           <select style={inputStyle} value={form.employer_id} onChange={(e) => update('employer_id', e.target.value)}>
@@ -552,7 +552,7 @@ function GrievanceForm({ heading, form, setForm, companies, unions, saving, save
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px', marginBottom: '14px' }}>
+      <div className="grid-3col" style={{ marginBottom: '14px' }}>
         <div>
           <label style={labelStyle}>Filed Date <span style={{ color: '#ef4444' }}>*</span></label>
           <input type="date" style={inputStyle} value={form.filed_date} onChange={(e) => update('filed_date', e.target.value)} />
@@ -658,7 +658,7 @@ function GrievanceDetail({ grievance, companyName, unionLabel, onEdit, onDelete,
       </div>
 
       <div style={card}>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+        <div className="grid-2col">
           <Detail label="Employer" value={companyName !== '—' ? companyName : grievance.employer_name} />
           <Detail label="Local Union" value={unionLabel !== '—' ? unionLabel : null} />
           <Detail label="Filed" value={formatDate(grievance.filed_date)} />

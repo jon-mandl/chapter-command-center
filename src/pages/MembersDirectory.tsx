@@ -216,9 +216,9 @@ export default function MembersDirectory(): React.JSX.Element {
   })
 
   return (
-    <div style={{ display: 'flex', height: '100%', minHeight: 0 }}>
+    <div className="split-panel">
       {/* Left: list */}
-      <div style={{ width: '360px', flexShrink: 0, borderRight: '1px solid #E2E8F0', display: 'flex', flexDirection: 'column', background: '#fff' }}>
+      <div className="split-panel-list" style={{ width: '360px' }}>
         <div style={{ padding: '20px 20px 12px', borderBottom: '1px solid #E2E8F0' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
             <span style={{ fontSize: '15px', fontWeight: 700, color: '#0F172A' }}>Companies</span>
@@ -286,7 +286,7 @@ export default function MembersDirectory(): React.JSX.Element {
       </div>
 
       {/* Right: detail / edit / create */}
-      <div style={{ flex: 1, overflowY: 'auto', padding: '28px 32px' }}>
+      <div className="split-panel-detail" style={{ padding: '28px 32px' }}>
         {mode === 'create' || (mode === 'edit' && selected) ? (
           <CompanyForm
             heading={mode === 'create' ? 'New Company' : `Edit ${selected?.company_name ?? ''}`}
@@ -346,7 +346,7 @@ function CompanyForm({ heading, form, setForm, saving, saveError, onSave, onCanc
         <input style={inputStyle} value={form.company_name} autoFocus onChange={(e) => update('company_name', e.target.value)} />
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '14px' }}>
+      <div className="grid-2col" style={{ marginBottom: '14px' }}>
         <div>
           <label style={labelStyle}>Status</label>
           <select style={inputStyle} value={form.status} onChange={(e) => update('status', e.target.value as CompanyStatus)}>
@@ -357,7 +357,7 @@ function CompanyForm({ heading, form, setForm, saving, saveError, onSave, onCanc
       </div>
 
       <div style={{ fontSize: '11px', fontWeight: 700, color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '8px', marginTop: '8px' }}>Primary Contact</div>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px', marginBottom: '14px' }}>
+      <div className="grid-3col" style={{ marginBottom: '14px' }}>
         <div>
           <label style={labelStyle}>Name</label>
           <input style={inputStyle} value={form.contact_name} onChange={(e) => update('contact_name', e.target.value)} />
@@ -377,7 +377,7 @@ function CompanyForm({ heading, form, setForm, saving, saveError, onSave, onCanc
         <label style={labelStyle}>Street</label>
         <input style={inputStyle} value={form.address} onChange={(e) => update('address', e.target.value)} />
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: '12px', marginBottom: '14px' }}>
+      <div className="grid-form-1-1-1" style={{ marginBottom: '14px' }}>
         <div>
           <label style={labelStyle}>City</label>
           <input style={inputStyle} value={form.city} onChange={(e) => update('city', e.target.value)} />
@@ -431,7 +431,7 @@ function CompanyDetail({ company, onEdit, onDelete }: {
       </div>
 
       <div style={card}>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+        <div className="grid-2col">
           <Detail label="Contact Name" value={company.contact_name} />
           <Detail label="Email" value={company.contact_email} link={company.contact_email ? `mailto:${company.contact_email}` : undefined} />
           <Detail label="Phone" value={company.contact_phone} />

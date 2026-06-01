@@ -110,12 +110,12 @@ export default function Login(): React.JSX.Element {
   }
 
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#F8FAFC' }}>
+    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#F8FAFC', padding: '16px' }}>
       <div style={{
         background: '#fff',
         border: '1px solid #E2E8F0',
         borderRadius: '10px',
-        padding: '40px 48px',
+        padding: 'clamp(20px, 5vw, 40px) clamp(20px, 6vw, 48px)',
         width: '100%',
         maxWidth: '400px',
         boxShadow: '0 2px 12px rgba(0,0,0,0.06)',

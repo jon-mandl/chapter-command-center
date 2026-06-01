@@ -474,6 +474,8 @@ export default function App(): React.JSX.Element {
     } catch { /* ignore */ }
     return window.innerWidth < 900
   })
+  // Mobile sidebar open/close (separate from the desktop collapsed state)
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
   // Forces the SetNewPassword screen. Set for both recovery (forgot-password)
   // and invite (first-time accept) flows. We seed it from a snapshot taken in
   // lib/supabase.ts *before* the SDK consumed the URL hash; PASSWORD_RECOVERY
@@ -486,6 +488,7 @@ export default function App(): React.JSX.Element {
   function handleNavigate(p: Page) {
     if (p !== 'negotiations') setSelectedNegotiationId(null)
     setPage(p)
+    setMobileSidebarOpen(false) // close drawer on navigation
   }
 
   function handleToggleSidebar() {
@@ -598,14 +601,39 @@ export default function App(): React.JSX.Element {
 
   return (
     <div style={{ display: 'flex', minHeight: '100vh' }}>
-      <Sidebar
-        active={effectivePage}
-        onNavigate={handleNavigate}
-        onSignOut={() => supabase.auth.signOut()}
-        collapsed={sidebarCollapsed}
-        onToggleCollapse={handleToggleSidebar}
-      />
-      <main style={{ flex: 1, background: '#F8FAFC', overflowY: 'auto' }}>
+      {/* Mobile hamburger — only visible via CSS on small screens */}
+      <button
+        className="hamburger-btn"
+        onClick={() => setMobileSidebarOpen(true)}
+        aria-label="Open navigation menu"
+        title="Open navigation menu"
+      >
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>
+        </svg>
+      </button>
+
+      {/* Dark overlay behind mobile sidebar */}
+      {mobileSidebarOpen && (
+        <div
+          className="sidebar-overlay"
+          onClick={() => setMobileSidebarOpen(false)}
+          aria-hidden="true"
+        />
+      )}
+
+      {/* Sidebar — fixed drawer on mobile, normal flow on desktop */}
+      <div className={`sidebar-wrapper${mobileSidebarOpen ? ' open' : ''}`}>
+        <Sidebar
+          active={effectivePage}
+          onNavigate={handleNavigate}
+          onSignOut={() => supabase.auth.signOut()}
+          collapsed={sidebarCollapsed}
+          onToggleCollapse={handleToggleSidebar}
+        />
+      </div>
+
+      <main className="main-content">
         <PageContent
           page={effectivePage}
           onNavigate={handleNavigate}

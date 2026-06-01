@@ -229,8 +229,8 @@ export default function MembersHours(): React.JSX.Element {
   }
 
   return (
-    <div style={{ padding: '28px 32px', maxWidth: '1080px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '24px' }}>
+    <div className="page-content-wide" style={{ maxWidth: '1080px', margin: '0 auto' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '24px', flexWrap: 'wrap', gap: '12px' }}>
         <div>
           <h2 style={{ fontSize: '20px', fontWeight: 700, color: '#0F172A', margin: 0 }}>Workforce Hours</h2>
           <p style={{ fontSize: '13px', color: '#64748B', margin: '6px 0 0' }}>Track monthly hours by company and local union.</p>
@@ -245,7 +245,7 @@ export default function MembersHours(): React.JSX.Element {
           <div style={{ fontSize: '15px', fontWeight: 700, color: '#0F172A', marginBottom: '20px' }}>
             {editing ? 'Edit Hours Entry' : 'New Hours Entry'}
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px', marginBottom: '14px' }}>
+          <div className="grid-3col" style={{ marginBottom: '14px' }}>
             <div>
               <label style={labelStyle}>Year <span style={{ color: '#ef4444' }}>*</span></label>
               <input type="number" style={inputStyle} value={form.year} onChange={(e) => setForm({ ...form, year: parseInt(e.target.value) || DEFAULT_YEAR })} min={2000} max={2100} />
@@ -306,7 +306,8 @@ export default function MembersHours(): React.JSX.Element {
             <strong style={{ color: '#0F172A', fontSize: '15px' }}>{Math.round(yearTotal).toLocaleString()}</strong> hours in {yearFilter}
           </span>
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(12, 1fr)', gap: '4px' }}>
+        <div className="table-scroll">
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(12, 1fr)', gap: '4px', minWidth: '600px' }}>
           {MONTH_LABELS.map((label, i) => {
             const total = monthlyTotals[i]
             return (
@@ -318,6 +319,7 @@ export default function MembersHours(): React.JSX.Element {
               </div>
             )
           })}
+        </div>
         </div>
       </div>
 
@@ -332,7 +334,8 @@ export default function MembersHours(): React.JSX.Element {
             <button onClick={startCreate} style={{ background: 'none', border: 'none', color: '#1E3A8A', cursor: 'pointer', padding: 0, fontSize: '13px', fontWeight: 600 }}>Add an entry</button>
           </div>
         ) : (
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <div className="table-scroll">
+          <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '540px' }}>
             <thead>
               <tr>
                 <th style={thStyle} scope="col">Month</th>
@@ -362,6 +365,7 @@ export default function MembersHours(): React.JSX.Element {
               })}
             </tbody>
           </table>
+          </div>
         )}
       </div>
 

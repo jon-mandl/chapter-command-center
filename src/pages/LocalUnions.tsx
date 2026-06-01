@@ -486,9 +486,9 @@ export default function LocalUnions(): React.JSX.Element {
   }
 
   return (
-    <div style={{ display: 'flex', height: '100%', minHeight: 0 }}>
+    <div className="split-panel">
       {/* Left: union list */}
-      <div style={{ width: '260px', flexShrink: 0, borderRight: '1px solid #E2E8F0', display: 'flex', flexDirection: 'column', background: '#fff' }}>
+      <div className="split-panel-list" style={{ width: '260px' }}>
         <div style={{ padding: '20px', borderBottom: '1px solid #E2E8F0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <span style={{ fontSize: '15px', fontWeight: 700, color: '#0F172A' }}>Local Unions</span>
           <button style={{ ...btnPrimary, fontSize: '12px', padding: '5px 12px' }} onClick={startCreateUnion}>+ Add</button>
@@ -524,13 +524,13 @@ export default function LocalUnions(): React.JSX.Element {
       </div>
 
       {/* Right: detail */}
-      <div style={{ flex: 1, overflowY: 'auto', padding: '28px 32px' }}>
+      <div className="split-panel-detail" style={{ padding: '28px 32px' }}>
         {showUnionForm ? (
           <div style={{ ...card, maxWidth: '600px', borderColor: '#1E3A8A', borderWidth: '1.5px' }}>
             <div style={{ fontSize: '15px', fontWeight: 700, color: '#0F172A', marginBottom: '20px' }}>
               {editingUnion ? `Edit Local ${editingUnion.local_number}` : 'New Local Union'}
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '12px', marginBottom: '14px' }}>
+            <div className="grid-form-2-1" style={{ marginBottom: '14px' }}>
               <div>
                 <label style={labelStyle}>Local Number <span style={{ color: '#ef4444' }}>*</span></label>
                 <input type="number" style={inputStyle} value={unionForm.local_number} autoFocus onChange={(e) => setUnionForm({ ...unionForm, local_number: e.target.value })} placeholder="e.g. 11" min={1} />
@@ -540,7 +540,7 @@ export default function LocalUnions(): React.JSX.Element {
                 <input style={inputStyle} value={unionForm.jurisdiction} onChange={(e) => setUnionForm({ ...unionForm, jurisdiction: e.target.value })} placeholder="e.g. Inside Wireman" />
               </div>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '12px', marginBottom: '16px' }}>
+            <div className="grid-form-2-1" style={{ marginBottom: '16px' }}>
               <div>
                 <label style={labelStyle}>City</label>
                 <input style={inputStyle} value={unionForm.city} onChange={(e) => setUnionForm({ ...unionForm, city: e.target.value })} />
@@ -592,7 +592,7 @@ export default function LocalUnions(): React.JSX.Element {
                   <div style={{ fontSize: '13px', fontWeight: 600, color: '#0F172A', marginBottom: '12px' }}>
                     {editingPackage ? `Edit ${editingPackage.classification}` : 'New Wage Package'}
                   </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: '10px', marginBottom: '10px' }}>
+                  <div className="grid-form-1-1-1" style={{ marginBottom: '10px' }}>
                     <div>
                       <label style={labelStyle}>Classification <span style={{ color: '#ef4444' }}>*</span></label>
                       <input style={inputStyle} value={packageForm.classification} autoFocus onChange={(e) => setPackageForm({ ...packageForm, classification: e.target.value })} placeholder="e.g. Journeyman" />
@@ -680,7 +680,7 @@ export default function LocalUnions(): React.JSX.Element {
                     <div style={{ fontSize: '13px', fontWeight: 600, color: '#0F172A', marginBottom: '12px' }}>
                       {editingComponent ? `Edit ${editingComponent.component_name}` : 'New Component'}
                     </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr 1fr', gap: '10px', marginBottom: '10px' }}>
+                    <div className="grid-form-1-1-1" style={{ marginBottom: '10px' }}>
                       <div>
                         <label style={labelStyle}>Code <span style={{ color: '#ef4444' }}>*</span></label>
                         <input style={inputStyle} value={componentForm.component_code} autoFocus onChange={(e) => setComponentForm({ ...componentForm, component_code: e.target.value })} placeholder="e.g. BW, HW, PEN" />
@@ -696,7 +696,7 @@ export default function LocalUnions(): React.JSX.Element {
                         </select>
                       </div>
                     </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '10px' }}>
+                    <div className="grid-2col" style={{ marginBottom: '10px' }}>
                       <div>
                         <label style={labelStyle}>Amount <span style={{ color: '#ef4444' }}>*</span></label>
                         <input type="number" step="0.0001" style={inputStyle} value={componentForm.amount} onChange={(e) => setComponentForm({ ...componentForm, amount: e.target.value })} />
@@ -728,7 +728,8 @@ export default function LocalUnions(): React.JSX.Element {
                   <div style={{ fontSize: '13px', color: '#94A3B8', padding: '12px 0' }}>No components in this package yet.</div>
                 ) : (
                   <>
-                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <div className="table-scroll">
+                    <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '500px' }}>
                       <thead>
                         <tr>
                           <th style={thStyle} scope="col">Code</th>
@@ -762,9 +763,10 @@ export default function LocalUnions(): React.JSX.Element {
                         })}
                       </tbody>
                     </table>
+                    </div>
 
                     {/* Totals — only meaningful for $/hr items */}
-                    <div style={{ marginTop: '14px', padding: '12px 14px', background: '#F8FAFC', borderRadius: '8px', display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px' }}>
+                    <div className="grid-stats" style={{ marginTop: '14px', padding: '12px 14px', background: '#F8FAFC', borderRadius: '8px' }}>
                       <Total label="Wages ($/hr)" value={componentTotals.wage} />
                       <Total label="Benefits ($/hr)" value={componentTotals.benefit} />
                       <Total label="Deductions ($/hr)" value={componentTotals.deduction} />

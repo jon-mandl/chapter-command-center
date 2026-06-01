@@ -21,7 +21,7 @@ export default function Members(): React.JSX.Element {
       {/* Tab bar */}
       <div style={{
         display: 'flex', gap: '0', borderBottom: '1px solid #E2E8F0',
-        background: '#fff', paddingLeft: '32px', flexShrink: 0
+        background: '#fff', paddingLeft: '16px', flexShrink: 0, overflowX: 'auto'
       }}>
         {TABS.map((t) => (
           <button

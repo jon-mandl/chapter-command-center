@@ -23,3 +23,230 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   outline: 2px solid #B8952A;
   outline-offset: 2px;
 }
+
+/* ─── Responsive layout utilities ──────────────────────────────────────────── */
+
+/* Page content wrapper — consistent padding that shrinks on small screens */
+.page-content {
+  padding: 28px 32px;
+  max-width: 960px;
+  margin: 0 auto;
+}
+@media (max-width: 768px) {
+  .page-content {
+    padding: 16px;
+    max-width: 100%;
+  }
+}
+
+/* Wider page content (used by pages that intentionally go past 960px) */
+.page-content-wide {
+  padding: 28px 32px;
+}
+@media (max-width: 768px) {
+  .page-content-wide {
+    padding: 16px;
+  }
+}
+
+/* Stat card grid: 4 cols → 2 cols on tablet → 1 col on phone */
+.grid-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+  margin-bottom: 20px;
+}
+@media (max-width: 900px) {
+  .grid-stats {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+@media (max-width: 480px) {
+  .grid-stats {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* 2-column grid → single column on mobile */
+.grid-2col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+@media (max-width: 640px) {
+  .grid-2col {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* 3-column grid → 1 col on mobile */
+.grid-3col {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+@media (max-width: 640px) {
+  .grid-3col {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Form grid: 2fr 1fr → stacked on mobile */
+.grid-form-2-1 {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 12px;
+}
+@media (max-width: 600px) {
+  .grid-form-2-1 {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* 1fr 1fr 1fr attendee grid → stacked on mobile */
+.grid-form-1-1-1 {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr;
+  gap: 8px;
+  align-items: flex-end;
+}
+@media (max-width: 600px) {
+  .grid-form-1-1-1 {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Table scroll wrapper: makes tables horizontally scrollable on mobile */
+.table-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Flex row that wraps on mobile */
+.flex-wrap-mobile {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+@media (max-width: 600px) {
+  .flex-wrap-mobile {
+    flex-wrap: wrap;
+  }
+}
+
+/* ─── Master-detail split panel ─────────────────────────────────────────────── */
+
+/* On desktop: left list panel + right detail panel side-by-side.
+   On mobile: stacked, detail panel only shows when an item is selected. */
+.split-panel {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+}
+.split-panel-list {
+  width: 380px;
+  flex-shrink: 0;
+  border-right: 1px solid #E2E8F0;
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+}
+.split-panel-detail {
+  flex: 1;
+  overflow-y: auto;
+}
+@media (max-width: 767px) {
+  .split-panel {
+    flex-direction: column;
+    height: auto;
+  }
+  .split-panel-list {
+    width: 100%;
+    border-right: none;
+    border-bottom: 1px solid #E2E8F0;
+    max-height: 50vh;
+    overflow-y: auto;
+  }
+  .split-panel-detail {
+    padding-bottom: 24px;
+  }
+}
+
+/* ─── Mobile sidebar overlay ────────────────────────────────────────────────── */
+
+/* Sidebar is always visible on desktop; hidden off-screen on mobile */
+.sidebar-wrapper {
+  flex-shrink: 0;
+  display: flex;
+}
+@media (max-width: 767px) {
+  .sidebar-wrapper {
+    position: fixed;
+    top: 0;
+    left: 0;
+    height: 100%;
+    z-index: 200;
+    transform: translateX(-100%);
+    transition: transform 0.22s ease;
+  }
+  .sidebar-wrapper.open {
+    transform: translateX(0);
+    box-shadow: 4px 0 24px rgba(0,0,0,0.18);
+  }
+}
+
+/* Dark overlay behind mobile sidebar */
+.sidebar-overlay {
+  display: none;
+}
+@media (max-width: 767px) {
+  .sidebar-overlay {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.45);
+    z-index: 199;
+    animation: fadeIn 0.18s ease;
+  }
+}
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* Hamburger button — only shown on mobile */
+.hamburger-btn {
+  display: none;
+}
+@media (max-width: 767px) {
+  .hamburger-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: fixed;
+    top: 12px;
+    left: 12px;
+    z-index: 198;
+    width: 40px;
+    height: 40px;
+    background: #1E3A8A;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    color: #fff;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.18);
+  }
+}
+
+/* Push page content right on desktop to account for sidebar; on mobile it's full-width */
+.main-content {
+  flex: 1;
+  background: #F8FAFC;
+  overflow-y: auto;
+  min-width: 0;
+}
+@media (max-width: 767px) {
+  .main-content {
+    padding-top: 60px; /* clear the hamburger button */
+  }
+}
