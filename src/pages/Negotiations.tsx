@@ -27,7 +27,8 @@ export default function Negotiations({ onOpenNegotiation, onNavigateToLocalUnion
   const [loadError, setLoadError] = useState('')
 
   const [showForm, setShowForm] = useState(false)
-  const [form, setForm] = useState({ name: '', local_union_id: '', cba_expiration_date: '' })
+  const [form, setForm] = useState({ name: '', local_union_id: '', cba_expiration_date: '', classification: '' })
+  const [classifications, setClassifications] = useState<string[]>([])
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState('')
 
@@ -59,6 +60,22 @@ export default function Negotiations({ onOpenNegotiation, onNavigateToLocalUnion
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [effectiveChapterId])
 
+  async function handleUnionChange(localUnionId: string): Promise<void> {
+    setForm((prev) => ({ ...prev, local_union_id: localUnionId, classification: '' }))
+    setClassifications([])
+    if (!localUnionId) return
+    const { data } = await supabase
+      .from('wage_packages')
+      .select('classification')
+      .eq('local_union_id', localUnionId)
+      .order('classification')
+    const distinct = Array.from(new Set((data ?? []).map((r: { classification: string }) => r.classification).filter(Boolean)))
+    setClassifications(distinct)
+    if (distinct.length > 0) {
+      setForm((prev) => ({ ...prev, classification: distinct[0] }))
+    }
+  }
+
   async function handleCreate(): Promise<void> {
     setSaveError('')
     if (!effectiveChapterId) {
@@ -76,7 +93,7 @@ export default function Negotiations({ onOpenNegotiation, onNavigateToLocalUnion
         chapter_id: effectiveChapterId,
         local_union_id: form.local_union_id,
         name,
-        classification: 'Journeyman',
+        classification: form.classification.trim() || 'Journeyman',
         cba_expiration_date: form.cba_expiration_date || null,
         status: 'Active'
       })
@@ -92,7 +109,8 @@ export default function Negotiations({ onOpenNegotiation, onNavigateToLocalUnion
     }
     setCycles((prev) => [data as NegotiationCycle, ...prev])
     setShowForm(false)
-    setForm({ name: '', local_union_id: '', cba_expiration_date: '' })
+    setForm({ name: '', local_union_id: '', cba_expiration_date: '', classification: '' })
+    setClassifications([])
     toast.success('Negotiation created.')
   }
 
@@ -152,7 +170,7 @@ export default function Negotiations({ onOpenNegotiation, onNavigateToLocalUnion
                 </div>
                 <div>
                   <label style={labelStyle}>Local Union <span style={{ color: '#ef4444' }}>*</span></label>
-                  <select style={inputStyle} value={form.local_union_id} onChange={(e) => setForm({ ...form, local_union_id: e.target.value })}>
+                  <select style={inputStyle} value={form.local_union_id} onChange={(e) => void handleUnionChange(e.target.value)}>
                     <option value="">— Select —</option>
                     {unions.map((u) => (
                       <option key={u.id} value={u.id}>Local {u.local_number}{u.city ? ` — ${u.city}` : ''}</option>
@@ -160,16 +178,37 @@ export default function Negotiations({ onOpenNegotiation, onNavigateToLocalUnion
                   </select>
                 </div>
               </div>
-              <div style={{ marginBottom: '12px' }}>
-                <label style={labelStyle}>CBA Expiration</label>
-                <input type="date" style={{ ...inputStyle, maxWidth: '240px' }} value={form.cba_expiration_date} onChange={(e) => setForm({ ...form, cba_expiration_date: e.target.value })} />
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
+                <div>
+                  <label style={labelStyle}>Classification <span style={{ color: '#ef4444' }}>*</span></label>
+                  {classifications.length > 0 ? (
+                    <select style={inputStyle} value={form.classification} onChange={(e) => setForm({ ...form, classification: e.target.value })}>
+                      {classifications.map((c) => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                  ) : (
+                    <input
+                      style={inputStyle}
+                      value={form.classification}
+                      onChange={(e) => setForm({ ...form, classification: e.target.value })}
+                      placeholder={form.local_union_id ? 'No wage packages — type a classification' : 'Select a local union first'}
+                      disabled={!form.local_union_id}
+                    />
+                  )}
+                  {form.local_union_id && classifications.length > 0 && (
+                    <div style={{ fontSize: '11px', color: '#94A3B8', marginTop: '4px' }}>From this local union's wage packages</div>
+                  )}
+                </div>
+                <div>
+                  <label style={labelStyle}>CBA Expiration</label>
+                  <input type="date" style={inputStyle} value={form.cba_expiration_date} onChange={(e) => setForm({ ...form, cba_expiration_date: e.target.value })} />
+                </div>
               </div>
               {saveError && <div style={errorBox}>{saveError}</div>}
               <div style={{ display: 'flex', gap: '8px' }}>
                 <button style={{ ...btnPrimary, opacity: saving ? 0.5 : 1 }} disabled={saving} onClick={handleCreate}>
                   {saving ? 'Creating…' : 'Create'}
                 </button>
-                <button style={btnSecondary} onClick={() => { setShowForm(false); setSaveError('') }}>Cancel</button>
+                <button style={btnSecondary} onClick={() => { setShowForm(false); setSaveError(''); setClassifications([]) }}>Cancel</button>
               </div>
             </>
           )}

@@ -22,7 +22,7 @@ import type {
   PositionSide
 } from '../lib/types'
 
-type Tab = 'overview' | 'sessions' | 'proposals' | 'comparison'
+type Tab = 'overview' | 'sessions' | 'proposals' | 'comparison' | 'dashboard'
 
 const NEG_STATUSES: NegotiationStatus[] = ['Active', 'Settled', 'Archived']
 
@@ -98,6 +98,7 @@ export default function NegotiationDetail({ negotiationId, onBack }: {
 
   const TABS: { id: Tab; label: string }[] = [
     { id: 'overview',    label: 'Overview' },
+    { id: 'dashboard',   label: 'Dashboard' },
     { id: 'sessions',    label: 'Session Log' },
     { id: 'proposals',   label: 'Proposals' },
     { id: 'comparison',  label: 'Comparison Sheet' },
@@ -149,10 +150,240 @@ export default function NegotiationDetail({ negotiationId, onBack }: {
 
       <div style={{ flex: 1, overflowY: 'auto', background: '#F8FAFC' }}>
         {activeTab === 'overview'   && <OverviewTab cycle={cycle} unions={unions} onUpdate={setCycle} toastError={toast.error} toastSuccess={toast.success} onTabChange={setActiveTab} />}
+        {activeTab === 'dashboard'  && <DashboardTab cycle={cycle} onTabChange={setActiveTab} />}
         {activeTab === 'sessions'   && <SessionsTab cycleId={cycle.id} isLocked={isLocked} />}
         {activeTab === 'proposals'  && <ProposalsTab cycleId={cycle.id} isLocked={isLocked} />}
         {activeTab === 'comparison' && <ComparisonSheet cycle={cycle} union={unions.find((u) => u.id === cycle.local_union_id) ?? null} />}
       </div>
+    </div>
+  )
+}
+
+// ─── Dashboard Tab ────────────────────────────────────────────────────────────
+
+type ProposalCounts = {
+  total: number
+  open: number
+  ta: number
+  withdrawn: number
+  rejected: number
+  economic: number
+  language: number
+  priority: number
+}
+
+type SessionSummary = {
+  total: number
+  lastDate: string | null
+  attendeeCount: number
+}
+
+function ProgressBar({ value, total, color }: { value: number; total: number; color: string }): React.JSX.Element {
+  const pct = total === 0 ? 0 : Math.round((value / total) * 100)
+  return (
+    <div style={{ height: '8px', background: '#F1F5F9', borderRadius: '4px', overflow: 'hidden' }}>
+      <div style={{ height: '100%', width: `${pct}%`, background: color, borderRadius: '4px', transition: 'width 0.4s' }} />
+    </div>
+  )
+}
+
+function StatCard({ label, value, sub, accent }: { label: string; value: string | number; sub?: string; accent?: string }): React.JSX.Element {
+  return (
+    <div style={{ background: '#fff', border: '1px solid #E2E8F0', borderRadius: '8px', padding: '18px 20px' }}>
+      <div style={{ fontSize: '11px', fontWeight: 700, color: '#64748B', textTransform: 'uppercase' as const, letterSpacing: '0.06em', marginBottom: '6px' }}>{label}</div>
+      <div style={{ fontSize: '28px', fontWeight: 700, color: accent ?? '#0F172A', lineHeight: 1 }}>{value}</div>
+      {sub && <div style={{ fontSize: '12px', color: '#94A3B8', marginTop: '4px' }}>{sub}</div>}
+    </div>
+  )
+}
+
+function DashboardTab({ cycle, onTabChange }: {
+  cycle: NegotiationCycle
+  onTabChange: (t: Tab) => void
+}): React.JSX.Element {
+  const [proposals, setProposals] = useState<ProposalCounts | null>(null)
+  const [sessions, setSessions] = useState<SessionSummary | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState('')
+
+  useEffect(() => {
+    let cancelled = false
+    void Promise.all([
+      supabase.from('proposals').select('id, status, category, priority').eq('cycle_id', cycle.id),
+      supabase.from('negotiation_sessions').select('id, session_date').eq('cycle_id', cycle.id).order('session_date', { ascending: false })
+    ]).then(async ([propRes, sessRes]) => {
+      if (cancelled) return
+      if (propRes.error) {
+        setLoadError(describeError(propRes.error, 'Could not load proposal data.'))
+        setLoading(false)
+        return
+      }
+
+      const props = (propRes.data ?? []) as { status: string; category: string; priority: boolean }[]
+      const counts: ProposalCounts = {
+        total: props.length,
+        open: props.filter((p) => p.status === 'Open').length,
+        ta: props.filter((p) => p.status === 'TA').length,
+        withdrawn: props.filter((p) => p.status === 'Withdrawn').length,
+        rejected: props.filter((p) => p.status === 'Rejected').length,
+        economic: props.filter((p) => p.category === 'Economic').length,
+        language: props.filter((p) => p.category === 'Language').length,
+        priority: props.filter((p) => p.priority).length
+      }
+      setProposals(counts)
+
+      const sessList = sessRes.error ? [] : (sessRes.data ?? []) as { id: string; session_date: string }[]
+      const sessionIds = sessList.map((s) => s.id)
+      let attendeeCount = 0
+      if (sessionIds.length > 0) {
+        const { count } = await supabase
+          .from('session_attendees')
+          .select('id', { count: 'exact', head: true })
+          .in('session_id', sessionIds)
+        attendeeCount = count ?? 0
+      }
+
+      setSessions({
+        total: sessList.length,
+        lastDate: sessList[0]?.session_date ?? null,
+        attendeeCount
+      })
+      setLoading(false)
+    })
+
+    return () => { cancelled = true }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cycle.id])
+
+  if (loading) return <div style={{ padding: '32px', fontSize: '13px', color: '#64748B' }}>Loading…</div>
+  if (loadError) return <div style={{ padding: '32px' }}><div style={errorBox}>{loadError}</div></div>
+
+  const taRate = proposals && proposals.total > 0 ? Math.round((proposals.ta / proposals.total) * 100) : 0
+  const resolvedTotal = (proposals?.ta ?? 0) + (proposals?.withdrawn ?? 0) + (proposals?.rejected ?? 0)
+
+  return (
+    <div style={{ padding: '28px 32px', maxWidth: '880px' }}>
+      <div style={{ marginBottom: '24px' }}>
+        <h2 style={{ fontSize: '18px', fontWeight: 700, color: '#0F172A', margin: '0 0 4px' }}>Negotiation Dashboard</h2>
+        <p style={{ fontSize: '13px', color: '#64748B', margin: 0 }}>At-a-glance summary of progress for {cycle.name}.</p>
+      </div>
+
+      {/* Top stat row */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '14px', marginBottom: '24px' }}>
+        <StatCard label="Total Proposals" value={proposals?.total ?? 0} />
+        <StatCard label="Tentatively Agreed" value={proposals?.ta ?? 0} accent="#059669" sub={`${taRate}% of all proposals`} />
+        <StatCard label="Still Open" value={proposals?.open ?? 0} accent="#4F46E5" />
+        <StatCard label="Sessions Held" value={sessions?.total ?? 0} sub={sessions?.lastDate ? `Last: ${formatDate(sessions.lastDate)}` : undefined} />
+      </div>
+
+      {/* Agreement progress bar */}
+      <div style={{ background: '#fff', border: '1px solid #E2E8F0', borderRadius: '8px', padding: '20px 24px', marginBottom: '16px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
+          <span style={{ fontSize: '13px', fontWeight: 700, color: '#0F172A' }}>Overall Agreement Progress</span>
+          <span style={{ fontSize: '13px', color: '#64748B' }}>{taRate}% agreed</span>
+        </div>
+        <ProgressBar value={proposals?.ta ?? 0} total={proposals?.total ?? 0} color="#059669" />
+        <div style={{ display: 'flex', gap: '20px', marginTop: '12px', flexWrap: 'wrap' }}>
+          {([
+            { label: 'Agreed (TA)', count: proposals?.ta ?? 0, color: '#059669', bg: '#f0fdf4' },
+            { label: 'Open', count: proposals?.open ?? 0, color: '#4F46E5', bg: '#EEF2FF' },
+            { label: 'Withdrawn', count: proposals?.withdrawn ?? 0, color: '#64748B', bg: '#F8FAFC' },
+            { label: 'Rejected', count: proposals?.rejected ?? 0, color: '#dc2626', bg: '#fef2f2' },
+          ]).map(({ label, count, color, bg }) => (
+            <div key={label} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: '#64748B' }}>
+              <span style={{ display: 'inline-block', width: '10px', height: '10px', borderRadius: '2px', background: bg, border: `1px solid ${color}`, flexShrink: 0 }} />
+              <span style={{ color, fontWeight: 600 }}>{count}</span> {label}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Two-column detail cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
+        {/* Proposal breakdown */}
+        <div style={{ background: '#fff', border: '1px solid #E2E8F0', borderRadius: '8px', padding: '20px 24px' }}>
+          <div style={{ fontSize: '13px', fontWeight: 700, color: '#0F172A', marginBottom: '14px' }}>Proposals by Type</div>
+          <div style={{ marginBottom: '12px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '5px' }}>
+              <span style={{ color: '#475569' }}>Economic</span>
+              <span style={{ fontWeight: 600, color: '#0F172A' }}>{proposals?.economic ?? 0}</span>
+            </div>
+            <ProgressBar value={proposals?.economic ?? 0} total={proposals?.total ?? 0} color="#4F46E5" />
+          </div>
+          <div style={{ marginBottom: '14px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '5px' }}>
+              <span style={{ color: '#475569' }}>Language</span>
+              <span style={{ fontWeight: 600, color: '#0F172A' }}>{proposals?.language ?? 0}</span>
+            </div>
+            <ProgressBar value={proposals?.language ?? 0} total={proposals?.total ?? 0} color="#0891b2" />
+          </div>
+          {(proposals?.priority ?? 0) > 0 && (
+            <div style={{ paddingTop: '12px', borderTop: '1px solid #F1F5F9', fontSize: '12px', color: '#64748B' }}>
+              <span style={{ fontWeight: 600, color: '#B8952A' }}>{proposals?.priority}</span> priority item{proposals?.priority !== 1 ? 's' : ''} flagged
+            </div>
+          )}
+        </div>
+
+        {/* Sessions summary */}
+        <div style={{ background: '#fff', border: '1px solid #E2E8F0', borderRadius: '8px', padding: '20px 24px' }}>
+          <div style={{ fontSize: '13px', fontWeight: 700, color: '#0F172A', marginBottom: '14px' }}>Sessions Summary</div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
+            <div>
+              <div style={{ fontSize: '11px', fontWeight: 600, color: '#64748B', textTransform: 'uppercase' as const, letterSpacing: '0.06em', marginBottom: '4px' }}>Sessions Held</div>
+              <div style={{ fontSize: '24px', fontWeight: 700, color: '#0F172A' }}>{sessions?.total ?? 0}</div>
+            </div>
+            <div>
+              <div style={{ fontSize: '11px', fontWeight: 600, color: '#64748B', textTransform: 'uppercase' as const, letterSpacing: '0.06em', marginBottom: '4px' }}>Total Attendees</div>
+              <div style={{ fontSize: '24px', fontWeight: 700, color: '#0F172A' }}>{sessions?.attendeeCount ?? 0}</div>
+            </div>
+          </div>
+          {sessions?.lastDate && (
+            <div style={{ paddingTop: '12px', borderTop: '1px solid #F1F5F9', fontSize: '12px', color: '#64748B' }}>
+              Last session: <span style={{ fontWeight: 600, color: '#0F172A' }}>{formatDate(sessions.lastDate)}</span>
+            </div>
+          )}
+          {(sessions?.total ?? 0) === 0 && (
+            <div style={{ fontSize: '12px', color: '#94A3B8' }}>No sessions recorded yet.</div>
+          )}
+        </div>
+      </div>
+
+      {/* Key dates */}
+      <div style={{ background: '#fff', border: '1px solid #E2E8F0', borderRadius: '8px', padding: '20px 24px', marginBottom: '16px' }}>
+        <div style={{ fontSize: '13px', fontWeight: 700, color: '#0F172A', marginBottom: '14px' }}>Key Dates</div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '20px' }}>
+          {[
+            { label: 'CBA Expiration', value: formatDate(cycle.cba_expiration_date) },
+            { label: 'Proposed Effective', value: formatDate(cycle.proposed_effective_date) },
+            { label: 'Bargaining Unit Size', value: cycle.unit_size ? cycle.unit_size.toLocaleString() + ' members' : '—' },
+          ].map(({ label, value }) => (
+            <div key={label}>
+              <div style={{ fontSize: '11px', fontWeight: 600, color: '#64748B', textTransform: 'uppercase' as const, letterSpacing: '0.06em', marginBottom: '4px' }}>{label}</div>
+              <div style={{ fontSize: '14px', fontWeight: 600, color: value !== '—' ? '#0F172A' : '#CBD5E1' }}>{value}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Quick-nav shortcuts */}
+      <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+        {([
+          { label: 'View Proposals', tab: 'proposals' as Tab },
+          { label: 'View Sessions', tab: 'sessions' as Tab },
+          { label: 'Comparison Sheet', tab: 'comparison' as Tab },
+        ]).map(({ label, tab }) => (
+          <button key={tab} onClick={() => onTabChange(tab)} style={{ padding: '8px 16px', fontSize: '13px', fontWeight: 500, background: '#fff', color: '#1E3A8A', border: '1px solid #CBD5E1', borderRadius: '6px', cursor: 'pointer' }}>
+            {label} →
+          </button>
+        ))}
+      </div>
+
+      {/* Resolved tally note */}
+      {resolvedTotal > 0 && (
+        <div style={{ marginTop: '16px', fontSize: '12px', color: '#94A3B8', lineHeight: 1.6 }}>
+          {resolvedTotal} proposal{resolvedTotal !== 1 ? 's' : ''} resolved (TA, Withdrawn, or Rejected) and no longer active.
+        </div>
+      )}
     </div>
   )
 }
@@ -193,6 +424,7 @@ function OverviewTab({ cycle, unions, onUpdate, toastError, toastSuccess, onTabC
   const [form, setForm] = useState({
     name: cycle.name,
     local_union_id: cycle.local_union_id,
+    classification: cycle.classification,
     neca_chapter_division: cycle.neca_chapter_division ?? '',
     cba_expiration_date: cycle.cba_expiration_date ?? '',
     proposed_effective_date: cycle.proposed_effective_date ?? '',
@@ -201,6 +433,7 @@ function OverviewTab({ cycle, unions, onUpdate, toastError, toastSuccess, onTabC
     annual_hours: cycle.annual_hours?.toString() ?? '',
     notes: cycle.notes ?? ''
   })
+  const [classifications, setClassifications] = useState<string[]>([])
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState('')
 
@@ -233,6 +466,29 @@ function OverviewTab({ cycle, unions, onUpdate, toastError, toastSuccess, onTabC
     return () => { cancelled = true }
   }, [cycle.id])
 
+  async function loadClassificationsForUnion(localUnionId: string): Promise<string[]> {
+    if (!localUnionId) return []
+    const { data } = await supabase
+      .from('wage_packages')
+      .select('classification')
+      .eq('local_union_id', localUnionId)
+      .order('classification')
+    return Array.from(new Set((data ?? []).map((r: { classification: string }) => r.classification).filter(Boolean)))
+  }
+
+  async function handleEditOpen(): Promise<void> {
+    setEditing(true)
+    const loaded = await loadClassificationsForUnion(cycle.local_union_id)
+    setClassifications(loaded)
+  }
+
+  async function handleEditUnionChange(localUnionId: string): Promise<void> {
+    setForm((prev) => ({ ...prev, local_union_id: localUnionId, classification: '' }))
+    const loaded = await loadClassificationsForUnion(localUnionId)
+    setClassifications(loaded)
+    if (loaded.length > 0) setForm((prev) => ({ ...prev, classification: loaded[0] }))
+  }
+
   async function handleSave(): Promise<void> {
     setSaveError('')
     if (!form.name.trim()) { setSaveError('Name is required.'); return }
@@ -242,6 +498,7 @@ function OverviewTab({ cycle, unions, onUpdate, toastError, toastSuccess, onTabC
       .update({
         name: form.name.trim(),
         local_union_id: form.local_union_id,
+        classification: form.classification.trim() || 'Journeyman',
         neca_chapter_division: form.neca_chapter_division.trim() || null,
         cba_expiration_date: form.cba_expiration_date || null,
         proposed_effective_date: form.proposed_effective_date || null,
@@ -291,7 +548,7 @@ function OverviewTab({ cycle, unions, onUpdate, toastError, toastSuccess, onTabC
     <div style={{ padding: '28px 32px', maxWidth: '720px' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '24px' }}>
         <h1 style={{ fontSize: '20px', fontWeight: 700, color: '#0F172A', margin: 0 }}>{cycle.name}</h1>
-        {!editing && <button style={btnSecondary} onClick={() => setEditing(true)}>Edit</button>}
+        {!editing && <button style={btnSecondary} onClick={() => void handleEditOpen()}>Edit</button>}
       </div>
 
       {editing ? (
@@ -304,9 +561,27 @@ function OverviewTab({ cycle, unions, onUpdate, toastError, toastSuccess, onTabC
             </div>
             <div>
               <label style={labelStyle}>Local Union</label>
-              <select style={inputStyle} value={form.local_union_id} onChange={(e) => setForm({ ...form, local_union_id: e.target.value })}>
+              <select style={inputStyle} value={form.local_union_id} onChange={(e) => void handleEditUnionChange(e.target.value)}>
                 {unions.map((u) => <option key={u.id} value={u.id}>Local {u.local_number}{u.city ? ` — ${u.city}` : ''}</option>)}
               </select>
+            </div>
+            <div>
+              <label style={labelStyle}>Classification</label>
+              {classifications.length > 0 ? (
+                <select style={inputStyle} value={form.classification} onChange={(e) => setForm({ ...form, classification: e.target.value })}>
+                  {classifications.map((c) => <option key={c} value={c}>{c}</option>)}
+                </select>
+              ) : (
+                <input
+                  style={inputStyle}
+                  value={form.classification}
+                  onChange={(e) => setForm({ ...form, classification: e.target.value })}
+                  placeholder="e.g. Journeyman"
+                />
+              )}
+              {classifications.length > 0 && (
+                <div style={{ fontSize: '11px', color: '#94A3B8', marginTop: '4px' }}>From this local union's wage packages</div>
+              )}
             </div>
             <div>
               <label style={labelStyle}>NECA Chapter / Division</label>
@@ -351,7 +626,7 @@ function OverviewTab({ cycle, unions, onUpdate, toastError, toastSuccess, onTabC
             <button style={{ ...btnPrimary, opacity: !form.name.trim() || saving ? 0.5 : 1 }} disabled={!form.name.trim() || saving} onClick={handleSave}>
               {saving ? 'Saving…' : 'Save Changes'}
             </button>
-            <button style={btnSecondary} onClick={() => { setEditing(false); setSaveError('') }}>Cancel</button>
+            <button style={btnSecondary} onClick={() => { setEditing(false); setSaveError(''); setClassifications([]) }}>Cancel</button>
           </div>
         </div>
       ) : (
@@ -359,6 +634,7 @@ function OverviewTab({ cycle, unions, onUpdate, toastError, toastSuccess, onTabC
           {/* Row 1: Core identity */}
           <div style={{ ...metaCard, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px 40px' }}>
             <MetaField label="Local Union" value={unionLabel(cycle.local_union_id)} />
+            <MetaField label="Classification" value={cycle.classification} />
             <MetaField label="NECA Chapter / Division" value={cycle.neca_chapter_division} />
             <MetaField label="CBA Expiration" value={formatDate(cycle.cba_expiration_date)} />
             <MetaField label="Proposed Effective Date" value={formatDate(cycle.proposed_effective_date)} />

@@ -348,9 +348,24 @@ export default function Grievances(): React.JSX.Element {
         <div style={{ flex: 1, overflowY: 'auto' }}>
           {loadError && <div style={{ ...errorBox, margin: '12px 16px' }}>{loadError}</div>}
           {filtered.length === 0 ? (
-            <div style={{ padding: '24px 20px', color: '#94A3B8', fontSize: '13px', textAlign: 'center' }}>
-              {grievances.length === 0 ? 'No grievances yet.' : 'No grievances match your filters.'}
-            </div>
+            grievances.length === 0 ? (
+              <div style={{ padding: '32px 20px', textAlign: 'center' }}>
+                <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#CBD5E1" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ margin: '0 auto 12px', display: 'block' }} aria-hidden="true">
+                  <circle cx="12" cy="12" r="10"/>
+                  <line x1="12" y1="8" x2="12" y2="12"/>
+                  <line x1="12" y1="16" x2="12.01" y2="16"/>
+                </svg>
+                <div style={{ fontSize: '14px', fontWeight: 600, color: '#0F172A', marginBottom: '6px' }}>No grievances filed</div>
+                <div style={{ fontSize: '12px', color: '#64748B', lineHeight: 1.5, marginBottom: '16px' }}>
+                  Use this tracker to log disputes, follow them through each step of the grievance procedure, and attach supporting documents.
+                </div>
+                <button style={{ ...btnPrimary, fontSize: '12px', padding: '6px 14px' }} onClick={startCreate}>+ File First Grievance</button>
+              </div>
+            ) : (
+              <div style={{ padding: '24px 20px', color: '#94A3B8', fontSize: '13px', textAlign: 'center' }}>
+                No grievances match your filters.
+              </div>
+            )
           ) : filtered.map((g) => {
             const sc = STAGE_COLORS[g.stage]
             const isSelected = g.id === selectedId
@@ -406,9 +421,28 @@ export default function Grievances(): React.JSX.Element {
             onLockToggle={() => setConfirmLockToggle(selected)}
           />
         ) : (
-          <div style={{ textAlign: 'center', padding: '80px 24px', color: '#94A3B8', fontSize: '13px' }}>
-            Select a grievance on the left, or{' '}
-            <button onClick={startCreate} style={{ background: 'none', border: 'none', color: '#1E3A8A', cursor: 'pointer', padding: 0, fontSize: '13px', fontWeight: 600 }}>file a new one</button>.
+          <div style={{ textAlign: 'center', padding: '80px 24px' }}>
+            {grievances.length === 0 ? (
+              <>
+                <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#CBD5E1" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ margin: '0 auto 14px', display: 'block' }} aria-hidden="true">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                  <polyline points="14 2 14 8 20 8"/>
+                  <line x1="16" y1="13" x2="8" y2="13"/>
+                  <line x1="16" y1="17" x2="8" y2="17"/>
+                  <polyline points="10 9 9 9 8 9"/>
+                </svg>
+                <div style={{ fontSize: '15px', fontWeight: 600, color: '#0F172A', marginBottom: '6px' }}>Track every grievance from filing to resolution</div>
+                <div style={{ fontSize: '13px', color: '#64748B', lineHeight: 1.6, maxWidth: '360px', margin: '0 auto 20px' }}>
+                  Log the dispute, record the employer and local union, then advance it through each step — LMC, CIR, Arbitration — attaching documents along the way.
+                </div>
+                <button style={btnPrimary} onClick={startCreate}>File First Grievance</button>
+              </>
+            ) : (
+              <div style={{ color: '#94A3B8', fontSize: '13px' }}>
+                Select a grievance on the left, or{' '}
+                <button onClick={startCreate} style={{ background: 'none', border: 'none', color: '#1E3A8A', cursor: 'pointer', padding: 0, fontSize: '13px', fontWeight: 600 }}>file a new one</button>.
+              </div>
+            )}
           </div>
         )}
       </div>

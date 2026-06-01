@@ -47,16 +47,150 @@ const SIDEBAR_ROLE_BADGE: Record<string, { bg: string; color: string; label: str
   user:  { bg: 'rgba(255,255,255,0.10)',    color: 'rgba(255,255,255,0.75)', label: 'User' },
 }
 
-function Sidebar({ active, onNavigate, onSignOut }: {
+// Icon abbreviations shown in the collapsed sidebar strip.
+const NAV_ICONS: Record<string, React.JSX.Element> = {
+  dashboard: (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>
+      <rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/>
+    </svg>
+  ),
+  negotiations: (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+      <polyline points="14 2 14 8 20 8"/>
+    </svg>
+  ),
+  grievances: (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+    </svg>
+  ),
+  'local-unions': (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>
+      <path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+    </svg>
+  ),
+  members: (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/>
+    </svg>
+  ),
+  documents: (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+    </svg>
+  ),
+  settings: (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="3"/>
+      <path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"/>
+    </svg>
+  ),
+  'admin-users': (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+    </svg>
+  ),
+}
+
+function Sidebar({ active, onNavigate, onSignOut, collapsed, onToggleCollapse }: {
   active: Page
   onNavigate: (page: Page) => void
   onSignOut: () => void
+  collapsed: boolean
+  onToggleCollapse: () => void
 }): React.JSX.Element {
   const [hoveredItem, setHoveredItem] = useState<Page | null>(null)
   const [hoveredSignOut, setHoveredSignOut] = useState(false)
   const { isAdmin } = useUserSettings()
 
   const visibleItems = NAV_ITEMS.filter((item) => !item.adminOnly || isAdmin)
+
+  if (collapsed) {
+    return (
+      <div style={{
+        width: '56px',
+        minHeight: '100vh',
+        background: '#1E3A8A',
+        display: 'flex',
+        flexDirection: 'column',
+        flexShrink: 0,
+        alignItems: 'center',
+        transition: 'width 0.2s'
+      }}>
+        {/* Expand toggle */}
+        <button
+          onClick={onToggleCollapse}
+          aria-label="Expand sidebar"
+          title="Expand sidebar"
+          style={{ marginTop: '18px', marginBottom: '10px', background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.5)', padding: '6px', borderRadius: '6px' }}
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/>
+          </svg>
+        </button>
+
+        <nav style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px', paddingTop: '6px', width: '100%' }}>
+          {visibleItems.map((item) => {
+            const isActive = active === item.id
+            const isHovered = hoveredItem === item.id
+            return (
+              <button
+                key={item.id}
+                onClick={() => onNavigate(item.id)}
+                onMouseEnter={() => setHoveredItem(item.id)}
+                onMouseLeave={() => setHoveredItem(null)}
+                aria-label={item.label}
+                title={item.label}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  width: '40px',
+                  height: '40px',
+                  borderRadius: '8px',
+                  border: 'none',
+                  cursor: 'pointer',
+                  color: isActive ? '#fff' : isHovered ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.5)',
+                  background: isActive ? 'rgba(184,149,42,0.2)' : isHovered ? 'rgba(255,255,255,0.08)' : 'transparent',
+                  outline: isActive ? '2px solid rgba(184,149,42,0.4)' : 'none',
+                  transition: 'background 0.15s, color 0.15s'
+                }}
+              >
+                {NAV_ICONS[item.id]}
+              </button>
+            )
+          })}
+        </nav>
+
+        {/* Sign out icon */}
+        <button
+          onClick={onSignOut}
+          aria-label="Sign out"
+          title="Sign out"
+          style={{
+            margin: '14px 0 18px',
+            background: 'none',
+            border: 'none',
+            cursor: 'pointer',
+            color: hoveredSignOut ? 'rgba(255,255,255,0.8)' : 'rgba(255,255,255,0.35)',
+            padding: '6px',
+            borderRadius: '6px',
+            transition: 'color 0.15s'
+          }}
+          onMouseEnter={() => setHoveredSignOut(true)}
+          onMouseLeave={() => setHoveredSignOut(false)}
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+            <polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>
+          </svg>
+        </button>
+      </div>
+    )
+  }
 
   return (
     <div style={{
@@ -65,15 +199,28 @@ function Sidebar({ active, onNavigate, onSignOut }: {
       background: '#1E3A8A',
       display: 'flex',
       flexDirection: 'column',
-      flexShrink: 0
+      flexShrink: 0,
+      transition: 'width 0.2s'
     }}>
-      <div style={{ padding: '28px 20px 22px', borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
-        <div style={{ fontSize: '11px', fontWeight: 600, color: '#B8952A', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: '4px' }}>
-          Chapter Command Center
+      <div style={{ padding: '20px 20px 16px', borderBottom: '1px solid rgba(255,255,255,0.1)', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '8px' }}>
+        <div>
+          <div style={{ fontSize: '11px', fontWeight: 600, color: '#B8952A', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: '4px' }}>
+            Chapter Command Center
+          </div>
+          <div style={{ fontSize: '13px', fontWeight: 400, color: 'rgba(255,255,255,0.55)', lineHeight: '1.3' }}>
+            Association Management
+          </div>
         </div>
-        <div style={{ fontSize: '13px', fontWeight: 400, color: 'rgba(255,255,255,0.55)', lineHeight: '1.3' }}>
-          Association Management
-        </div>
+        <button
+          onClick={onToggleCollapse}
+          aria-label="Collapse sidebar"
+          title="Collapse sidebar"
+          style={{ flexShrink: 0, marginTop: '2px', background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.35)', padding: '4px', borderRadius: '4px', transition: 'color 0.15s' }}
+        >
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/>
+          </svg>
+        </button>
       </div>
 
       {isAdmin && <AdminChapterSwitcher />}
@@ -320,6 +467,13 @@ export default function App(): React.JSX.Element {
   const [authLoading, setAuthLoading] = useState(true)
   const [page, setPage] = useState<Page>('dashboard')
   const [selectedNegotiationId, setSelectedNegotiationId] = useState<ID | null>(null)
+  const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(() => {
+    try {
+      const stored = localStorage.getItem('sidebarCollapsed')
+      if (stored !== null) return stored === 'true'
+    } catch { /* ignore */ }
+    return window.innerWidth < 900
+  })
   // Forces the SetNewPassword screen. Set for both recovery (forgot-password)
   // and invite (first-time accept) flows. We seed it from a snapshot taken in
   // lib/supabase.ts *before* the SDK consumed the URL hash; PASSWORD_RECOVERY
@@ -332,6 +486,14 @@ export default function App(): React.JSX.Element {
   function handleNavigate(p: Page) {
     if (p !== 'negotiations') setSelectedNegotiationId(null)
     setPage(p)
+  }
+
+  function handleToggleSidebar() {
+    setSidebarCollapsed((prev) => {
+      const next = !prev
+      try { localStorage.setItem('sidebarCollapsed', String(next)) } catch { /* ignore */ }
+      return next
+    })
   }
 
   useEffect(() => {
@@ -440,6 +602,8 @@ export default function App(): React.JSX.Element {
         active={effectivePage}
         onNavigate={handleNavigate}
         onSignOut={() => supabase.auth.signOut()}
+        collapsed={sidebarCollapsed}
+        onToggleCollapse={handleToggleSidebar}
       />
       <main style={{ flex: 1, background: '#F8FAFC', overflowY: 'auto' }}>
         <PageContent
