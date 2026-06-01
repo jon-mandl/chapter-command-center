@@ -27,7 +27,7 @@ export default function Negotiations({ onOpenNegotiation, onNavigateToLocalUnion
   const [loadError, setLoadError] = useState('')
 
   const [showForm, setShowForm] = useState(false)
-  const [form, setForm] = useState({ name: '', local_union_id: '', classification: 'Journeyman', cba_expiration_date: '' })
+  const [form, setForm] = useState({ name: '', local_union_id: '', cba_expiration_date: '' })
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState('')
 
@@ -76,7 +76,7 @@ export default function Negotiations({ onOpenNegotiation, onNavigateToLocalUnion
         chapter_id: effectiveChapterId,
         local_union_id: form.local_union_id,
         name,
-        classification: form.classification.trim() || 'Journeyman',
+        classification: 'Journeyman',
         cba_expiration_date: form.cba_expiration_date || null,
         status: 'Active'
       })
@@ -92,7 +92,7 @@ export default function Negotiations({ onOpenNegotiation, onNavigateToLocalUnion
     }
     setCycles((prev) => [data as NegotiationCycle, ...prev])
     setShowForm(false)
-    setForm({ name: '', local_union_id: '', classification: 'Journeyman', cba_expiration_date: '' })
+    setForm({ name: '', local_union_id: '', cba_expiration_date: '' })
     toast.success('Negotiation created.')
   }
 
@@ -160,15 +160,9 @@ export default function Negotiations({ onOpenNegotiation, onNavigateToLocalUnion
                   </select>
                 </div>
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
-                <div>
-                  <label style={labelStyle}>Classification</label>
-                  <input style={inputStyle} value={form.classification} onChange={(e) => setForm({ ...form, classification: e.target.value })} placeholder="Journeyman" />
-                </div>
-                <div>
-                  <label style={labelStyle}>CBA Expiration</label>
-                  <input type="date" style={inputStyle} value={form.cba_expiration_date} onChange={(e) => setForm({ ...form, cba_expiration_date: e.target.value })} />
-                </div>
+              <div style={{ marginBottom: '12px' }}>
+                <label style={labelStyle}>CBA Expiration</label>
+                <input type="date" style={{ ...inputStyle, maxWidth: '240px' }} value={form.cba_expiration_date} onChange={(e) => setForm({ ...form, cba_expiration_date: e.target.value })} />
               </div>
               {saveError && <div style={errorBox}>{saveError}</div>}
               <div style={{ display: 'flex', gap: '8px' }}>
@@ -199,7 +193,6 @@ export default function Negotiations({ onOpenNegotiation, onNavigateToLocalUnion
               <tr>
                 <th style={thStyle} scope="col">Name</th>
                 <th style={thStyle} scope="col">Local Union</th>
-                <th style={thStyle} scope="col">Classification</th>
                 <th style={thStyle} scope="col">CBA Expires</th>
                 <th style={thStyle} scope="col">Status</th>
                 <th style={{ ...thStyle, width: '80px' }} scope="col"></th>
@@ -219,7 +212,6 @@ export default function Negotiations({ onOpenNegotiation, onNavigateToLocalUnion
                       </button>
                     </td>
                     <td style={tdStyle}>{unionLabel(c.local_union_id)}</td>
-                    <td style={tdStyle}>{c.classification}</td>
                     <td style={tdStyle}>{formatDate(c.cba_expiration_date)}</td>
                     <td style={tdStyle}>
                       <span style={{ fontSize: '11px', fontWeight: 600, padding: '2px 8px', borderRadius: '20px', background: sc.bg, color: sc.color, border: `1px solid ${sc.border}` }}>
