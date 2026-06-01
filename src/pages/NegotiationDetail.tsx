@@ -5,6 +5,7 @@ import { useToast } from '../lib/toast'
 import { describeError } from '../lib/errors'
 import ConfirmDialog from '../lib/ConfirmDialog'
 import { inputStyle, btnPrimary, btnSecondary, btnDanger, card, labelStyle, errorBox, formatDate } from '../lib/ui'
+import ComparisonSheet from '../components/comparison/ComparisonSheet'
 import type {
   ID,
   NegotiationCycle,
@@ -21,7 +22,7 @@ import type {
   PositionSide
 } from '../lib/types'
 
-type Tab = 'overview' | 'sessions' | 'proposals'
+type Tab = 'overview' | 'sessions' | 'proposals' | 'comparison'
 
 const NEG_STATUSES: NegotiationStatus[] = ['Active', 'Settled', 'Archived']
 
@@ -84,9 +85,10 @@ export default function NegotiationDetail({ negotiationId, onBack }: {
   const sc = STATUS_COLORS[cycle.status]
 
   const TABS: { id: Tab; label: string }[] = [
-    { id: 'overview',  label: 'Overview' },
-    { id: 'sessions',  label: 'Session Log' },
-    { id: 'proposals', label: 'Proposals' }
+    { id: 'overview',    label: 'Overview' },
+    { id: 'sessions',    label: 'Session Log' },
+    { id: 'proposals',   label: 'Proposals' },
+    { id: 'comparison',  label: 'Comparison Sheet' },
   ]
 
   return (
@@ -134,9 +136,10 @@ export default function NegotiationDetail({ negotiationId, onBack }: {
       </div>
 
       <div style={{ flex: 1, overflowY: 'auto', background: '#F8FAFC' }}>
-        {activeTab === 'overview'  && <OverviewTab cycle={cycle} unions={unions} onUpdate={setCycle} toastError={toast.error} toastSuccess={toast.success} />}
-        {activeTab === 'sessions'  && <SessionsTab cycleId={cycle.id} isLocked={isLocked} />}
-        {activeTab === 'proposals' && <ProposalsTab cycleId={cycle.id} isLocked={isLocked} />}
+        {activeTab === 'overview'   && <OverviewTab cycle={cycle} unions={unions} onUpdate={setCycle} toastError={toast.error} toastSuccess={toast.success} />}
+        {activeTab === 'sessions'   && <SessionsTab cycleId={cycle.id} isLocked={isLocked} />}
+        {activeTab === 'proposals'  && <ProposalsTab cycleId={cycle.id} isLocked={isLocked} />}
+        {activeTab === 'comparison' && <ComparisonSheet cycle={cycle} union={unions.find((u) => u.id === cycle.local_union_id) ?? null} />}
       </div>
     </div>
   )

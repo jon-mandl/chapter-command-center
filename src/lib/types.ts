@@ -76,6 +76,7 @@ export interface Proposal {
   proposed_by: ProposedBy | null
   status: ProposalStatus
   sort_order: number
+  priority: boolean
   notes: string | null
   created_at: string
   updated_at: string

@@ -1,0 +1,47 @@
+/* Chapter Command Center — Foundation tokens
+ * Source of truth for color, type, spacing, radii, shadows.
+ */
+
+:root {
+  --ccc-navy:           #1E3A8A;
+  --ccc-navy-disabled:  #93afd4;
+  --ccc-bg:             #F8FAFC;
+  --ccc-surface:        #ffffff;
+  --ccc-border:         #E2E8F0;
+  --ccc-border-strong:  #CBD5E1;
+  --ccc-border-soft:    #F1F5F9;
+  --ccc-fg:             #0F172A;
+  --ccc-fg-muted:       #64748B;
+  --ccc-fg-subtle:      #8896A5;
+  --ccc-fg-faint:       #94A3B8;
+  --ccc-on-navy:            #ffffff;
+  --ccc-on-navy-muted:      rgba(255,255,255,0.75);
+  --ccc-success-bg:     #f0fdf4;
+  --ccc-success-fg:     #059669;
+  --ccc-success-border: #bbf7d0;
+  --ccc-warning-bg:     #FFFBEB;
+  --ccc-warning-fg:     #92400E;
+  --ccc-warning-border: #fde68a;
+  --ccc-danger-bg:      #fef2f2;
+  --ccc-danger-fg:      #dc2626;
+  --ccc-danger-border:  #fecaca;
+  --ccc-info-bg:        #EFF6FF;
+  --ccc-info-fg:        var(--ccc-navy);
+  --ccc-font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --ccc-sidebar-w:    220px;
+  --ccc-page-px:      32px;
+  --ccc-content-max:  960px;
+  --ccc-focus-ring:   2px solid var(--ccc-navy);
+}
+
+html, body {
+  font-family: var(--ccc-font-sans);
+  background: var(--ccc-bg);
+  color: var(--ccc-fg);
+  -webkit-font-smoothing: antialiased;
+}
+
+button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
+  outline: var(--ccc-focus-ring);
+  outline-offset: 2px;
+}
