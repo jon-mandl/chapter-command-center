@@ -2241,7 +2241,7 @@ function DocumentsTab({
         title="Delete Document"
         message={confirmDelete ? `Delete "${confirmDelete.file_name}"? This cannot be undone.` : ''}
         confirmLabel="Delete"
-        loading={deleting}
+        busy={deleting}
         onConfirm={handleDelete}
         onCancel={() => setConfirmDelete(null)}
       />
