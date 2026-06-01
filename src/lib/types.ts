@@ -151,6 +151,21 @@ export interface GrievanceDocument {
   uploaded_at: string
 }
 
+export type NegotiationDocumentRole = 'opening_letter' | 'meeting_minutes' | 'final_agreement' | 'arbitration' | 'proposal' | 'other'
+
+export interface NegotiationDocument {
+  id: ID
+  cycle_id: ID
+  chapter_id: ID
+  file_name: string
+  file_path: string
+  file_size: number | null
+  mime_type: string | null
+  role: NegotiationDocumentRole
+  notes: string | null
+  uploaded_at: string
+}
+
 export type CompanyStatus = 'Active' | 'Inactive'
 
 export interface MemberCompany {

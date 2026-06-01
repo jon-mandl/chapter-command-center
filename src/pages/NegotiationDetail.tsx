@@ -6,6 +6,13 @@ import { describeError } from '../lib/errors'
 import ConfirmDialog from '../lib/ConfirmDialog'
 import { inputStyle, btnPrimary, btnSecondary, btnDanger, card, labelStyle, errorBox, formatDate } from '../lib/ui'
 import ComparisonSheet from '../components/comparison/ComparisonSheet'
+import {
+  STORAGE_BUCKETS,
+  buildStoragePath,
+  createSignedDownloadUrl,
+  formatBytes,
+  validateUpload
+} from '../lib/storage'
 import type {
   ID,
   NegotiationCycle,
@@ -19,10 +26,12 @@ import type {
   ProposalCategory,
   ProposedBy,
   ProposalPosition,
-  PositionSide
+  PositionSide,
+  NegotiationDocument,
+  NegotiationDocumentRole
 } from '../lib/types'
 
-type Tab = 'overview' | 'sessions' | 'proposals' | 'comparison' | 'dashboard'
+type Tab = 'overview' | 'sessions' | 'proposals' | 'comparison' | 'dashboard' | 'documents'
 
 const NEG_STATUSES: NegotiationStatus[] = ['Active', 'Settled', 'Archived']
 
@@ -102,6 +111,7 @@ export default function NegotiationDetail({ negotiationId, onBack }: {
     { id: 'sessions',    label: 'Session Log' },
     { id: 'proposals',   label: 'Proposals' },
     { id: 'comparison',  label: 'Comparison Sheet' },
+    { id: 'documents',   label: 'Documents' },
   ]
 
   return (
@@ -154,6 +164,7 @@ export default function NegotiationDetail({ negotiationId, onBack }: {
         {activeTab === 'sessions'   && <SessionsTab cycleId={cycle.id} isLocked={isLocked} />}
         {activeTab === 'proposals'  && <ProposalsTab cycleId={cycle.id} isLocked={isLocked} />}
         {activeTab === 'comparison' && <ComparisonSheet cycle={cycle} union={unions.find((u) => u.id === cycle.local_union_id) ?? null} />}
+        {activeTab === 'documents'  && <DocumentsTab cycleId={cycle.id} chapterId={cycle.chapter_id} isLocked={isLocked} />}
       </div>
     </div>
   )
@@ -1906,6 +1917,334 @@ function ProposalCard({ proposal, sessions, positions, expanded, isLocked, onTog
           )}
         </div>
       )}
+    </div>
+  )
+}
+
+// ─── Documents Tab ────────────────────────────────────────────────────────────
+
+const DOC_ROLES: { value: NegotiationDocumentRole; label: string }[] = [
+  { value: 'opening_letter',   label: 'Opening Letter' },
+  { value: 'meeting_minutes',  label: 'Meeting Minutes' },
+  { value: 'proposal',         label: 'Proposal' },
+  { value: 'final_agreement',  label: 'Final Agreement' },
+  { value: 'arbitration',      label: 'Arbitration' },
+  { value: 'other',            label: 'Other' },
+]
+
+const ROLE_COLORS: Record<NegotiationDocumentRole, { bg: string; color: string; border: string }> = {
+  opening_letter:  { bg: '#EEF2FF', color: '#4F46E5', border: '#C7D2FE' },
+  meeting_minutes: { bg: '#f0fdf4', color: '#059669', border: '#bbf7d0' },
+  proposal:        { bg: '#fff7ed', color: '#ea580c', border: '#fed7aa' },
+  final_agreement: { bg: '#fefce8', color: '#ca8a04', border: '#fef08a' },
+  arbitration:     { bg: '#fef2f2', color: '#dc2626', border: '#fecaca' },
+  other:           { bg: '#F8FAFC', color: '#64748B', border: '#E2E8F0' },
+}
+
+function DocumentsTab({
+  cycleId,
+  chapterId,
+  isLocked,
+}: {
+  cycleId: ID
+  chapterId: ID
+  isLocked: boolean
+}): React.JSX.Element {
+  const toast = useToast()
+  const [docs, setDocs] = useState<NegotiationDocument[]>([])
+  const [loadedFor, setLoadedFor] = useState<ID | null>(null)
+  const [roleFilter, setRoleFilter] = useState<NegotiationDocumentRole | 'all'>('all')
+
+  const [showUpload, setShowUpload] = useState(false)
+  const [file, setFile] = useState<File | null>(null)
+  const [displayName, setDisplayName] = useState('')
+  const [role, setRole] = useState<NegotiationDocumentRole>('other')
+  const [notes, setNotes] = useState('')
+  const [uploading, setUploading] = useState(false)
+  const [uploadError, setUploadError] = useState('')
+
+  const [confirmDelete, setConfirmDelete] = useState<NegotiationDocument | null>(null)
+  const [deleting, setDeleting] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    void supabase
+      .from('negotiation_documents')
+      .select('*')
+      .eq('cycle_id', cycleId)
+      .order('uploaded_at', { ascending: false })
+      .then(({ data, error: err }) => {
+        if (cancelled) return
+        if (err) {
+          toast.error('Could not load documents: ' + describeError(err))
+          setDocs([])
+        } else {
+          setDocs((data ?? []) as NegotiationDocument[])
+        }
+        setLoadedFor(cycleId)
+      })
+    return () => { cancelled = true }
+  }, [cycleId, toast])
+
+  const loading = loadedFor !== cycleId
+  const filtered = roleFilter === 'all' ? docs : docs.filter((d) => d.role === roleFilter)
+
+  function pickFile(f: File | null): void {
+    setUploadError('')
+    setFile(f)
+    if (f && !displayName.trim()) setDisplayName(f.name)
+  }
+
+  async function handleUpload(): Promise<void> {
+    if (!file) return
+    setUploadError('')
+    const name = displayName.trim() || file.name
+
+    const v = validateUpload(file, 'negotiationDocuments')
+    if (v) { setUploadError(v.message); return }
+
+    setUploading(true)
+    const path = buildStoragePath(cycleId, file.name)
+    const { error: uploadErr } = await supabase.storage
+      .from(STORAGE_BUCKETS.negotiationDocuments.name)
+      .upload(path, file, { contentType: file.type || undefined, upsert: false })
+    if (uploadErr) {
+      setUploading(false)
+      const msg = describeError(uploadErr, 'Upload failed.')
+      setUploadError(msg)
+      toast.error(msg)
+      return
+    }
+
+    const { data, error: dbErr } = await supabase
+      .from('negotiation_documents')
+      .insert({
+        cycle_id: cycleId,
+        chapter_id: chapterId,
+        file_name: name,
+        file_path: path,
+        file_size: file.size,
+        mime_type: file.type || null,
+        role,
+        notes: notes.trim() || null,
+      })
+      .select()
+      .single()
+    if (dbErr || !data) {
+      await supabase.storage.from(STORAGE_BUCKETS.negotiationDocuments.name).remove([path])
+      setUploading(false)
+      const msg = describeError(dbErr, 'Saved the file, but could not record it. Try again.')
+      setUploadError(msg)
+      toast.error(msg)
+      return
+    }
+
+    setUploading(false)
+    setDocs((prev) => [data as NegotiationDocument, ...prev])
+    setFile(null)
+    setDisplayName('')
+    setRole('other')
+    setNotes('')
+    setShowUpload(false)
+    toast.success('Document uploaded.')
+  }
+
+  async function handleDownload(doc: NegotiationDocument): Promise<void> {
+    const { url, error } = await createSignedDownloadUrl('negotiationDocuments', doc.file_path)
+    if (error || !url) {
+      toast.error('Could not generate download link: ' + (error ?? 'unknown error'))
+      return
+    }
+    window.open(url, '_blank', 'noopener,noreferrer')
+  }
+
+  async function handleDelete(): Promise<void> {
+    if (!confirmDelete) return
+    setDeleting(true)
+    const { error: dbErr } = await supabase
+      .from('negotiation_documents')
+      .delete()
+      .eq('id', confirmDelete.id)
+    if (dbErr) {
+      setDeleting(false)
+      toast.error('Could not delete: ' + describeError(dbErr))
+      return
+    }
+    const { error: storageErr } = await supabase.storage
+      .from(STORAGE_BUCKETS.negotiationDocuments.name)
+      .remove([confirmDelete.file_path])
+    setDeleting(false)
+    if (storageErr) {
+      toast.error('Document removed, but the file could not be deleted from storage. ' + describeError(storageErr))
+    } else {
+      toast.success('Document deleted.')
+    }
+    setDocs((prev) => prev.filter((d) => d.id !== confirmDelete.id))
+    setConfirmDelete(null)
+  }
+
+  return (
+    <div style={{ padding: '24px', maxWidth: '960px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '20px', gap: '12px', flexWrap: 'wrap' }}>
+        <div>
+          <div style={{ fontSize: '15px', fontWeight: 700, color: '#0F172A' }}>Documents</div>
+          <div style={{ fontSize: '13px', color: '#64748B', marginTop: '2px' }}>Opening letters, minutes, proposals, and agreements for this negotiation.</div>
+        </div>
+        {!isLocked && !showUpload && (
+          <button style={{ ...btnPrimary, fontSize: '13px' }} onClick={() => setShowUpload(true)}>+ Upload Document</button>
+        )}
+      </div>
+
+      {showUpload && (
+        <div style={{ ...card, borderColor: '#1E3A8A', borderWidth: '1.5px', marginBottom: '24px' }}>
+          <div style={{ fontSize: '14px', fontWeight: 700, color: '#0F172A', marginBottom: '16px' }}>Upload Document</div>
+          <div style={{ marginBottom: '12px' }}>
+            <label style={labelStyle}>File <span style={{ color: '#ef4444' }}>*</span></label>
+            <input type="file" onChange={(e) => pickFile(e.target.files?.[0] ?? null)} style={{ fontSize: '13px' }} aria-label="Choose negotiation document to upload" />
+            {file && (
+              <div style={{ fontSize: '12px', color: '#64748B', marginTop: '6px' }}>
+                {file.name} · {formatBytes(file.size)}{file.type ? ` · ${file.type}` : ''}
+              </div>
+            )}
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
+            <div>
+              <label style={labelStyle}>Display Name</label>
+              <input style={inputStyle} value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="Defaults to the file name" />
+            </div>
+            <div>
+              <label style={labelStyle}>Document Type</label>
+              <select style={inputStyle} value={role} onChange={(e) => setRole(e.target.value as NegotiationDocumentRole)}>
+                {DOC_ROLES.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
+              </select>
+            </div>
+          </div>
+          <div style={{ marginBottom: '12px' }}>
+            <label style={labelStyle}>Notes <span style={{ fontWeight: 400, color: '#94A3B8' }}>(optional)</span></label>
+            <input style={inputStyle} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="e.g. Session 3 — ratified draft" />
+          </div>
+          {uploadError && <div style={errorBox}>{uploadError}</div>}
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <button
+              style={{ ...btnPrimary, fontSize: '13px', opacity: !file || uploading ? 0.5 : 1 }}
+              disabled={!file || uploading}
+              onClick={handleUpload}
+            >
+              {uploading ? 'Uploading…' : 'Upload'}
+            </button>
+            <button
+              style={{ ...btnSecondary, fontSize: '13px' }}
+              disabled={uploading}
+              onClick={() => { setShowUpload(false); setFile(null); setDisplayName(''); setRole('other'); setNotes(''); setUploadError('') }}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      <div style={{ display: 'flex', gap: '8px', marginBottom: '16px', flexWrap: 'wrap' }}>
+        <button
+          onClick={() => setRoleFilter('all')}
+          style={{ fontSize: '12px', padding: '4px 12px', borderRadius: '20px', border: '1px solid', cursor: 'pointer', background: roleFilter === 'all' ? '#1E3A8A' : '#fff', color: roleFilter === 'all' ? '#fff' : '#64748B', borderColor: roleFilter === 'all' ? '#1E3A8A' : '#E2E8F0' }}
+        >
+          All
+        </button>
+        {DOC_ROLES.map((r) => (
+          <button
+            key={r.value}
+            onClick={() => setRoleFilter(r.value)}
+            style={{ fontSize: '12px', padding: '4px 12px', borderRadius: '20px', border: '1px solid', cursor: 'pointer', background: roleFilter === r.value ? '#1E3A8A' : '#fff', color: roleFilter === r.value ? '#fff' : '#64748B', borderColor: roleFilter === r.value ? '#1E3A8A' : '#E2E8F0' }}
+          >
+            {r.label}
+          </button>
+        ))}
+      </div>
+
+      {loading ? (
+        <div style={{ fontSize: '13px', color: '#64748B' }}>Loading…</div>
+      ) : filtered.length === 0 ? (
+        docs.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: '60px 24px' }}>
+            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#CBD5E1" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ margin: '0 auto 16px', display: 'block' }} aria-hidden="true">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+              <polyline points="14 2 14 8 20 8"/>
+            </svg>
+            <div style={{ fontSize: '14px', fontWeight: 600, color: '#64748B', marginBottom: '8px' }}>No documents yet</div>
+            <div style={{ fontSize: '13px', color: '#94A3B8', marginBottom: '20px' }}>Upload opening letters, session minutes, proposals, and agreements to keep everything in one place.</div>
+            {!isLocked && <button style={btnPrimary} onClick={() => setShowUpload(true)}>Upload First Document</button>}
+          </div>
+        ) : (
+          <div style={{ fontSize: '13px', color: '#94A3B8', padding: '24px 0' }}>No documents match that filter.</div>
+        )
+      ) : (
+        <div style={{ background: '#fff', border: '1px solid #E2E8F0', borderRadius: '10px', overflow: 'hidden' }}>
+          {filtered.map((doc, idx) => {
+            const rc = ROLE_COLORS[doc.role]
+            const roleLabel = DOC_ROLES.find((r) => r.value === doc.role)?.label ?? doc.role
+            return (
+              <div
+                key={doc.id}
+                style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px', borderTop: idx > 0 ? '1px solid #F1F5F9' : 'none', gap: '12px' }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', minWidth: 0 }}>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#64748B" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ flexShrink: 0 }}>
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                    <polyline points="14 2 14 8 20 8"/>
+                  </svg>
+                  <div style={{ minWidth: 0 }}>
+                    <button
+                      onClick={() => handleDownload(doc)}
+                      style={{ background: 'none', border: 'none', padding: 0, color: '#1E3A8A', fontWeight: 600, fontSize: '13px', cursor: 'pointer', textAlign: 'left', display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '400px' }}
+                    >
+                      {doc.file_name}
+                    </button>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '3px', flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: '11px', fontWeight: 600, padding: '1px 7px', borderRadius: '20px', background: rc.bg, color: rc.color, border: `1px solid ${rc.border}` }}>
+                        {roleLabel}
+                      </span>
+                      <span style={{ fontSize: '11px', color: '#94A3B8' }}>
+                        {formatBytes(doc.file_size)} · {formatDate(doc.uploaded_at.slice(0, 10))}
+                      </span>
+                      {doc.notes && (
+                        <span style={{ fontSize: '11px', color: '#64748B', fontStyle: 'italic' }}>{doc.notes}</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
+                  <button
+                    style={{ ...btnSecondary, fontSize: '12px', padding: '4px 10px' }}
+                    onClick={() => handleDownload(doc)}
+                  >
+                    Download
+                  </button>
+                  {!isLocked && (
+                    <button
+                      style={{ ...btnDanger, fontSize: '12px', padding: '4px 10px' }}
+                      onClick={() => setConfirmDelete(doc)}
+                      aria-label={`Delete ${doc.file_name}`}
+                      title={`Delete ${doc.file_name}`}
+                    >
+                      Delete
+                    </button>
+                  )}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      <ConfirmDialog
+        open={!!confirmDelete}
+        title="Delete Document"
+        message={confirmDelete ? `Delete "${confirmDelete.file_name}"? This cannot be undone.` : ''}
+        confirmLabel="Delete"
+        loading={deleting}
+        onConfirm={handleDelete}
+        onCancel={() => setConfirmDelete(null)}
+      />
     </div>
   )
 }
