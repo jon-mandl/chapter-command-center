@@ -50,6 +50,9 @@ npx supabase db push
 | 20260601130900 | add_priority_to_proposals | Adds priority boolean to proposals |
 | 20260601134033 | proposal_overhaul_and_cycle_fields | Adds economic/language fields to proposals, cycle metadata |
 | 20260601000000 | baseline_schema | **Local snapshot** — full schema as of 2026-06-01 (not applied to live DB, documentation only) |
+| 20260601000001 | add_negotiation_documents | Adds negotiation_documents table |
+| 20260702000000 | user_settings_cascade_delete | Cascade delete for user_settings |
+| 20260702130000 | add_gpep_and_discount_tier | Adds workforce_hours.gross_payroll (GPEP) and member_companies.discount_tier for service charge |
 
 ---
 

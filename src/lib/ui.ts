@@ -139,3 +139,15 @@ export function formatDate(iso: string | null | undefined): string {
     month: 'short', day: 'numeric', year: 'numeric'
   })
 }
+
+// Currency display: $1,234.56 (cents = true) or $1,235 (cents = false).
+// Null/undefined renders an em dash.
+export function formatMoney(value: number | null | undefined, cents = true): string {
+  if (value == null) return '—'
+  return value.toLocaleString('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: cents ? 2 : 0,
+    maximumFractionDigits: cents ? 2 : 0
+  })
+}

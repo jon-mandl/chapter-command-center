@@ -168,6 +168,9 @@ export interface NegotiationDocument {
 
 export type CompanyStatus = 'Active' | 'Inactive'
 
+// NECA multiple-membership discount tier, set annually from the national list.
+export type DiscountTier = 'none' | 'ten_plus' | 'twenty_five_plus'
+
 export interface MemberCompany {
   id: ID
   chapter_id: ID
@@ -180,6 +183,7 @@ export interface MemberCompany {
   state: string | null
   zip: string | null
   status: CompanyStatus
+  discount_tier: DiscountTier
   notes: string | null
   created_at: string
   updated_at: string
@@ -223,6 +227,7 @@ export interface WorkforceHours {
   company_id: ID | null
   report_month: string
   total_hours: number
+  gross_payroll: number | null
   employer_name: string | null
   classification: string | null
   source: string | null

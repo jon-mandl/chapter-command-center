@@ -4,7 +4,8 @@ import { useUserSettings } from '../lib/useUserSettings'
 import { useToast } from '../lib/toast'
 import { describeError } from '../lib/errors'
 import ConfirmDialog from '../lib/ConfirmDialog'
-import { inputStyle, labelStyle, btnPrimary, btnSecondary, btnDanger, card, errorBox, thStyle, tdStyle } from '../lib/ui'
+import ImportHoursModal from './ImportHoursModal'
+import { inputStyle, labelStyle, btnPrimary, btnSecondary, btnDanger, card, errorBox, thStyle, tdStyle, formatMoney } from '../lib/ui'
 import type { WorkforceHours, MemberCompany, LocalUnion, ID } from '../lib/types'
 
 const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
@@ -27,6 +28,7 @@ type FormState = {
   company_id: string
   local_union_id: string
   total_hours: string
+  gross_payroll: string
   classification: string
 }
 
@@ -40,6 +42,7 @@ const EMPTY_FORM: FormState = {
   company_id: '',
   local_union_id: '',
   total_hours: '',
+  gross_payroll: '',
   classification: ''
 }
 
@@ -63,6 +66,7 @@ export default function MembersHours(): React.JSX.Element {
 
   const [confirmDelete, setConfirmDelete] = useState<WorkforceHours | null>(null)
   const [deleting, setDeleting] = useState(false)
+  const [showImport, setShowImport] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -149,6 +153,7 @@ export default function MembersHours(): React.JSX.Element {
       company_id: row.company_id ?? '',
       local_union_id: row.local_union_id ?? '',
       total_hours: String(row.total_hours ?? ''),
+      gross_payroll: row.gross_payroll == null ? '' : String(row.gross_payroll),
       classification: row.classification ?? ''
     })
     setSaveError('')
@@ -165,11 +170,19 @@ export default function MembersHours(): React.JSX.Element {
     if (!form.total_hours.trim() || Number.isNaN(hours)) { setSaveError('Total hours must be a number.'); return }
     if (hours < 0) { setSaveError('Total hours cannot be negative.'); return }
 
+    let grossPayroll: number | null = null
+    if (form.gross_payroll.trim()) {
+      grossPayroll = Number(form.gross_payroll)
+      if (Number.isNaN(grossPayroll)) { setSaveError('Gross payroll must be a number.'); return }
+      if (grossPayroll < 0) { setSaveError('Gross payroll cannot be negative.'); return }
+    }
+
     setSaving(true)
     const payload = {
       chapter_id: effectiveChapterId,
       report_month: firstOfMonthIso(form.year, form.month),
       total_hours: hours,
+      gross_payroll: grossPayroll,
       company_id: form.company_id || null,
       local_union_id: form.local_union_id || null,
       classification: form.classification.trim() || null
@@ -241,7 +254,19 @@ export default function MembersHours(): React.JSX.Element {
           <h2 style={{ fontSize: '20px', fontWeight: 700, color: '#0F172A', margin: 0 }}>Workforce Hours</h2>
           <p style={{ fontSize: '13px', color: '#64748B', margin: '6px 0 0' }}>Track monthly hours by company and local union.</p>
         </div>
-        {!showForm && <button style={btnPrimary} onClick={startCreate}>+ Add Entry</button>}
+        {!showForm && (
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <button
+              style={{ ...btnSecondary, opacity: effectiveChapterId ? 1 : 0.5 }}
+              disabled={!effectiveChapterId}
+              title={effectiveChapterId ? 'Import hours from Excel or CSV' : 'Select a specific chapter from the sidebar to import'}
+              onClick={() => setShowImport(true)}
+            >
+              Import Hours
+            </button>
+            <button style={btnPrimary} onClick={startCreate}>+ Add Entry</button>
+          </div>
+        )}
       </div>
 
       {loadError && <div style={errorBox}>{loadError}</div>}
@@ -265,6 +290,10 @@ export default function MembersHours(): React.JSX.Element {
             <div>
               <label style={labelStyle}>Total Hours <span style={{ color: '#ef4444' }}>*</span></label>
               <input type="number" style={inputStyle} value={form.total_hours} onChange={(e) => setForm({ ...form, total_hours: e.target.value })} min={0} step={0.5} placeholder="0" />
+            </div>
+            <div>
+              <label style={labelStyle}>Gross Payroll (GPEP) $</label>
+              <input type="number" style={inputStyle} value={form.gross_payroll} onChange={(e) => setForm({ ...form, gross_payroll: e.target.value })} min={0} step={0.01} placeholder="Optional" />
             </div>
             <div>
               <label style={labelStyle}>Company</label>
@@ -341,7 +370,7 @@ export default function MembersHours(): React.JSX.Element {
           </div>
         ) : (
           <div className="table-scroll">
-          <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '540px' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '640px' }}>
             <thead>
               <tr>
                 <th style={thStyle} scope="col">Month</th>
@@ -349,6 +378,7 @@ export default function MembersHours(): React.JSX.Element {
                 <th style={thStyle} scope="col">Local Union</th>
                 <th style={thStyle} scope="col">Classification</th>
                 <th style={{ ...thStyle, textAlign: 'right' }} scope="col">Hours</th>
+                <th style={{ ...thStyle, textAlign: 'right' }} scope="col">Gross Payroll</th>
                 <th style={{ ...thStyle, width: '160px' }} scope="col"></th>
               </tr>
             </thead>
@@ -362,6 +392,7 @@ export default function MembersHours(): React.JSX.Element {
                     <td style={tdStyle}>{unionLabel(r.local_union_id)}</td>
                     <td style={tdStyle}>{r.classification ?? '—'}</td>
                     <td style={{ ...tdStyle, textAlign: 'right', fontWeight: 600 }}>{Math.round(Number(r.total_hours)).toLocaleString()}</td>
+                    <td style={{ ...tdStyle, textAlign: 'right', color: r.gross_payroll == null ? '#CBD5E1' : '#0F172A' }}>{formatMoney(r.gross_payroll, false)}</td>
                     <td style={{ ...tdStyle, textAlign: 'right' }}>
                       <button style={{ ...btnSecondary, fontSize: '12px', padding: '4px 10px', marginRight: '6px' }} onClick={() => startEdit(r)}>Edit</button>
                       <button style={{ ...btnDanger, fontSize: '12px', padding: '4px 10px' }} onClick={() => setConfirmDelete(r)}>Delete</button>
@@ -374,6 +405,22 @@ export default function MembersHours(): React.JSX.Element {
           </div>
         )}
       </div>
+
+      {showImport && effectiveChapterId && (
+        <ImportHoursModal
+          chapterId={effectiveChapterId}
+          companies={companies}
+          existingHours={rows}
+          onClose={() => setShowImport(false)}
+          onImported={(inserted, updated) => {
+            setRows((prev) => {
+              const updatedById = new Map(updated.map((r) => [r.id, r]))
+              const merged = prev.map((r) => updatedById.get(r.id) ?? r)
+              return [...inserted, ...merged].sort((a, b) => a.report_month < b.report_month ? 1 : -1)
+            })
+          }}
+        />
+      )}
 
       <ConfirmDialog
         open={confirmDelete !== null}

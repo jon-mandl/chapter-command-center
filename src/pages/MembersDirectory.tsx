@@ -5,7 +5,8 @@ import { useToast } from '../lib/toast'
 import { describeError } from '../lib/errors'
 import ConfirmDialog from '../lib/ConfirmDialog'
 import { inputStyle, labelStyle, btnPrimary, btnSecondary, btnDanger, card, errorBox } from '../lib/ui'
-import type { MemberCompany, CompanyStatus, ID } from '../lib/types'
+import { DISCOUNT_TIER_LABEL } from '../lib/serviceCharge'
+import type { MemberCompany, CompanyStatus, DiscountTier, ID } from '../lib/types'
 
 const STATUS_COLORS: Record<CompanyStatus, { bg: string; color: string }> = {
   Active:   { bg: '#f0fdf4', color: '#059669' },
@@ -22,6 +23,7 @@ type FormState = {
   state: string
   zip: string
   status: CompanyStatus
+  discount_tier: DiscountTier
   notes: string
 }
 
@@ -35,6 +37,7 @@ const EMPTY_FORM: FormState = {
   state: '',
   zip: '',
   status: 'Active',
+  discount_tier: 'none',
   notes: ''
 }
 
@@ -49,6 +52,7 @@ function formFromCompany(c: MemberCompany): FormState {
     state: c.state ?? '',
     zip: c.zip ?? '',
     status: c.status,
+    discount_tier: c.discount_tier,
     notes: c.notes ?? ''
   }
 }
@@ -64,6 +68,7 @@ function payloadFromForm(form: FormState): Omit<MemberCompany, 'id' | 'chapter_i
     state: form.state.trim() || null,
     zip: form.zip.trim() || null,
     status: form.status,
+    discount_tier: form.discount_tier,
     notes: form.notes.trim() || null
   }
 }
@@ -354,6 +359,17 @@ function CompanyForm({ heading, form, setForm, saving, saveError, onSave, onCanc
             <option>Inactive</option>
           </select>
         </div>
+        <div>
+          <label style={labelStyle}>NECA Membership Discount</label>
+          <select style={inputStyle} value={form.discount_tier} onChange={(e) => update('discount_tier', e.target.value as DiscountTier)}>
+            <option value="none">{DISCOUNT_TIER_LABEL.none}</option>
+            <option value="ten_plus">{DISCOUNT_TIER_LABEL.ten_plus}</option>
+            <option value="twenty_five_plus">{DISCOUNT_TIER_LABEL.twenty_five_plus}</option>
+          </select>
+          <div style={{ fontSize: '11px', color: '#94A3B8', marginTop: '4px' }}>
+            From the NECA national multiple-membership list, updated annually.
+          </div>
+        </div>
       </div>
 
       <div style={{ fontSize: '11px', fontWeight: 700, color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '8px', marginTop: '8px' }}>Primary Contact</div>
@@ -436,6 +452,7 @@ function CompanyDetail({ company, onEdit, onDelete }: {
           <Detail label="Email" value={company.contact_email} link={company.contact_email ? `mailto:${company.contact_email}` : undefined} />
           <Detail label="Phone" value={company.contact_phone} />
           <Detail label="Address" value={addressLine || null} />
+          <Detail label="NECA Membership Discount" value={company.discount_tier === 'none' ? null : DISCOUNT_TIER_LABEL[company.discount_tier]} />
         </div>
         {company.notes && (
           <>
