@@ -343,7 +343,8 @@ export default function AdminUsers(): React.JSX.Element {
             Pending invites ({pendingInvites.length})
           </div>
           <div style={{ background: '#fff', border: '1px solid #E2E8F0', borderRadius: '10px', overflow: 'hidden' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <div className="table-scroll">
+            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '600px' }}>
               <thead>
                 <tr>
                   <th style={thStyle} scope="col">Email</th>
@@ -393,6 +394,7 @@ export default function AdminUsers(): React.JSX.Element {
                 })}
               </tbody>
             </table>
+            </div>
           </div>
         </div>
       )}
@@ -431,7 +433,8 @@ export default function AdminUsers(): React.JSX.Element {
             {users.length === 0 ? 'No users yet.' : 'No users match your filters.'}
           </div>
         ) : (
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <div className="table-scroll">
+          <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '900px' }}>
             <thead>
               <tr>
                 <th style={thStyle} scope="col">User</th>
@@ -539,6 +542,7 @@ export default function AdminUsers(): React.JSX.Element {
               })}
             </tbody>
           </table>
+          </div>
         )}
       </div>
 
