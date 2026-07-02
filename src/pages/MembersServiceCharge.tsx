@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { supabase } from '../lib/supabase'
+import { supabase, HOURS_QUERY_MAX } from '../lib/supabase'
 import { useUserSettings } from '../lib/useUserSettings'
 import { useToast } from '../lib/toast'
 import { describeError } from '../lib/errors'
@@ -32,7 +32,7 @@ export default function MembersServiceCharge(): React.JSX.Element {
     let cancelled = false
     void Promise.all([
       applyChapterFilter(supabase.from('member_companies').select('*').order('company_name')),
-      applyChapterFilter(supabase.from('workforce_hours').select('*'))
+      applyChapterFilter(supabase.from('workforce_hours').select('*')).range(0, HOURS_QUERY_MAX - 1)
     ]).then(([compRes, hoursRes]: [{ data: unknown; error: unknown }, { data: unknown; error: unknown }]) => {
       if (cancelled) return
       if (compRes.error) {
@@ -43,7 +43,11 @@ export default function MembersServiceCharge(): React.JSX.Element {
       if (hoursRes.error) {
         toast.error('Could not load hours: ' + describeError(hoursRes.error))
       } else {
-        setHours((hoursRes.data ?? []) as WorkforceHours[])
+        const hoursRows = (hoursRes.data ?? []) as WorkforceHours[]
+        setHours(hoursRows)
+        if (hoursRows.length >= HOURS_QUERY_MAX) {
+          toast.error('This chapter has more hours records than can be shown at once; totals may be incomplete. Please contact support.')
+        }
       }
       setLoading(false)
     })

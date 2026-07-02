@@ -4,6 +4,7 @@ import { useUserSettings } from '../lib/useUserSettings'
 import { useToast } from '../lib/toast'
 import { describeError } from '../lib/errors'
 import ConfirmDialog from '../lib/ConfirmDialog'
+import { STORAGE_BUCKETS } from '../lib/storage'
 import { inputStyle, btnPrimary, btnSecondary, btnDanger, card, labelStyle, errorBox, formatDate, thStyle, tdStyle } from '../lib/ui'
 import type { NegotiationCycle, LocalUnion, ID, NegotiationStatus } from '../lib/types'
 
@@ -117,6 +118,32 @@ export default function Negotiations({ onOpenNegotiation, onNavigateToLocalUnion
   async function handleDelete(): Promise<void> {
     if (!confirmDelete) return
     setDeleting(true)
+
+    // Deleting the cycle cascades its child rows in the DB, but storage blobs
+    // are NOT touched by a DB cascade. Remove the attached document files first
+    // so they don't get orphaned in the bucket. A storage failure here is
+    // non-fatal — we log it and still delete the cycle.
+    const { data: docRows, error: docsErr } = await supabase
+      .from('negotiation_documents')
+      .select('file_path')
+      .eq('cycle_id', confirmDelete.id)
+    if (docsErr) {
+      setDeleting(false)
+      toast.error('Could not delete: ' + describeError(docsErr))
+      return
+    }
+    const paths = (docRows ?? [])
+      .map((r) => (r as { file_path: string }).file_path)
+      .filter(Boolean)
+    if (paths.length > 0) {
+      const { error: storageErr } = await supabase.storage
+        .from(STORAGE_BUCKETS.negotiationDocuments.name)
+        .remove(paths)
+      if (storageErr) {
+        toast.error('Some document files could not be removed from storage. ' + describeError(storageErr))
+      }
+    }
+
     const { error } = await supabase.from('negotiation_cycles').delete().eq('id', confirmDelete.id)
     setDeleting(false)
     if (error) {
@@ -280,7 +307,7 @@ export default function Negotiations({ onOpenNegotiation, onNavigateToLocalUnion
       <ConfirmDialog
         open={confirmDelete !== null}
         title="Delete negotiation?"
-        message={confirmDelete ? `This will permanently delete "${confirmDelete.name}" and all its sessions, proposals, and positions. This cannot be undone.` : ''}
+        message={confirmDelete ? `This will permanently delete "${confirmDelete.name}" and all its sessions, proposals, positions, and documents. This cannot be undone.` : ''}
         confirmLabel="Delete"
         destructive
         busy={deleting}

@@ -20,8 +20,13 @@ interface ComparisonSheetProps {
 
 // ─── Summary strip (economic mode) ───────────────────────────────────────────
 
-function EconSummary({ proposals }: {
+// Fallback compensated hours per year when the negotiation cycle doesn't
+// specify annual_hours. Matches the form placeholder shown in the Overview tab.
+const DEFAULT_ANNUAL_HOURS = 1800
+
+function EconSummary({ proposals, annualHours }: {
   proposals: Proposal[]
+  annualHours: number | null
   positions?: Record<string, ProposalPosition[]>
 }): React.JSX.Element {
   const econProps = proposals.filter((p) => p.category === 'Economic')
@@ -65,7 +70,7 @@ function EconSummary({ proposals }: {
       <div style={{ flex: 1, minWidth: 360 }}>
         <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 8 }}>
           <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#64748B' }}>Package cost · per compensated hour</span>
-          {gapHr > 0 && <span style={{ fontSize: 12, color: '#92400E', fontWeight: 600 }}>Parties {formatMoney(gapHr * 1800)}/yr apart (est.)</span>}
+          {gapHr > 0 && <span style={{ fontSize: 12, color: '#92400E', fontWeight: 600 }}>Parties {formatMoney(gapHr * (annualHours ?? DEFAULT_ANNUAL_HOURS))}/yr apart (est.)</span>}
         </div>
         <div style={{ display: 'flex', gap: 10 }}>
           <CostTile col={COLS.uni} value={unionHr > 0 ? `+$${unionHr.toFixed(2)}` : '—'} sub="union ask vs. current" />
@@ -232,7 +237,7 @@ export default function ComparisonSheet({ cycle, union }: ComparisonSheetProps):
 
         {/* Mode-specific summary strip */}
         {mode === 'econ'
-          ? <EconSummary proposals={proposals} />
+          ? <EconSummary proposals={proposals} annualHours={cycle.annual_hours} />
           : <LangSummary proposals={proposals} />
         }
       </div>

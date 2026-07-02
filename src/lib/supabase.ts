@@ -31,6 +31,13 @@ export function authCallbackType(): AuthCallbackType {
   return initialAuthCallbackType
 }
 
+// Supabase silently caps an unbounded select() at 1000 rows. Pages that sum
+// workforce_hours client-side must request an explicit range well above any
+// realistic row count so totals aren't silently truncated, and warn the user
+// if the ceiling is ever actually reached. One chapter's hours = companies ×
+// months × classifications, so 100k leaves a very large safety margin.
+export const HOURS_QUERY_MAX = 100000
+
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
     // Default true, but make it explicit: the SDK should parse the auth tokens

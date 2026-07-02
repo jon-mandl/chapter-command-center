@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { supabase } from '../lib/supabase'
+import { supabase, HOURS_QUERY_MAX } from '../lib/supabase'
 import { useUserSettings } from '../lib/useUserSettings'
 import { useToast } from '../lib/toast'
 import { describeError } from '../lib/errors'
@@ -67,7 +67,7 @@ export default function MembersHours(): React.JSX.Element {
   useEffect(() => {
     let cancelled = false
     void Promise.all([
-      applyChapterFilter(supabase.from('workforce_hours').select('*').order('report_month', { ascending: false })),
+      applyChapterFilter(supabase.from('workforce_hours').select('*').order('report_month', { ascending: false })).range(0, HOURS_QUERY_MAX - 1),
       applyChapterFilter(supabase.from('member_companies').select('*').order('company_name')),
       applyChapterFilter(supabase.from('local_unions').select('*').order('local_number'))
     ]).then(([rowsRes, compRes, unionsRes]: [{ data: unknown; error: unknown }, { data: unknown; error: unknown }, { data: unknown; error: unknown }]) => {
@@ -75,7 +75,13 @@ export default function MembersHours(): React.JSX.Element {
       if (rowsRes.error) {
         setLoadError(describeError(rowsRes.error, 'Could not load hours.'))
       } else {
-        setRows((rowsRes.data ?? []) as WorkforceHours[])
+        const hoursRows = (rowsRes.data ?? []) as WorkforceHours[]
+        setRows(hoursRows)
+        // If we hit the ceiling, totals below would be silently incomplete —
+        // warn instead of showing a wrong number.
+        if (hoursRows.length >= HOURS_QUERY_MAX) {
+          toast.error('This chapter has more hours records than can be shown at once; totals may be incomplete. Please contact support.')
+        }
       }
       if (compRes.error) toast.error('Could not load companies: ' + describeError(compRes.error))
       else setCompanies((compRes.data ?? []) as MemberCompany[])

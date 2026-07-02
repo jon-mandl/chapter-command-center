@@ -237,6 +237,32 @@ export default function Grievances(): React.JSX.Element {
   async function handleDelete(): Promise<void> {
     if (!confirmDelete) return
     setDeleting(true)
+
+    // Deleting the grievance cascades grievance_documents rows in the DB, but
+    // the file blobs in storage are NOT removed by a DB cascade. Delete them
+    // first so they don't get orphaned in the bucket. A storage failure here is
+    // non-fatal — we surface it and still delete the grievance.
+    const { data: docRows, error: docsErr } = await supabase
+      .from('grievance_documents')
+      .select('file_path')
+      .eq('grievance_id', confirmDelete.id)
+    if (docsErr) {
+      setDeleting(false)
+      toast.error('Could not delete: ' + describeError(docsErr))
+      return
+    }
+    const paths = (docRows ?? [])
+      .map((r) => (r as { file_path: string }).file_path)
+      .filter(Boolean)
+    if (paths.length > 0) {
+      const { error: storageErr } = await supabase.storage
+        .from(STORAGE_BUCKETS.grievanceDocuments.name)
+        .remove(paths)
+      if (storageErr) {
+        toast.error('Some attachment files could not be removed from storage. ' + describeError(storageErr))
+      }
+    }
+
     const { error: err } = await supabase
       .from('grievances')
       .delete()

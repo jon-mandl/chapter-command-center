@@ -189,7 +189,7 @@ export default function AdminUsers(): React.JSX.Element {
       setPendingInvites(refreshed as PendingInviteRow[])
     }
     setShowInviteForm(false)
-    setInviteForm({ email: '', chapter_id: '', role: 'member' })
+    setInviteForm({ email: '', chapter_id: '', role: 'user' })
     toast.success(`Invite sent to ${email}.`)
     // Touch `data` so unused-var lint doesn't fire; the Edge Function payload
     // isn't surfaced beyond the success toast.

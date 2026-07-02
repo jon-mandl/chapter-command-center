@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { supabase } from '../lib/supabase'
+import { supabase, HOURS_QUERY_MAX } from '../lib/supabase'
 import { useUserSettings } from '../lib/useUserSettings'
 import { useToast } from '../lib/toast'
 import { describeError } from '../lib/errors'
@@ -43,7 +43,7 @@ export default function Dashboard({ onNavigate }: DashboardProps): React.JSX.Ele
       applyChapterFilter(supabase.from('negotiation_cycles').select('*').order('created_at', { ascending: false })),
       applyChapterFilter(supabase.from('grievances').select('*').order('filed_date', { ascending: false })),
       applyChapterFilter(supabase.from('member_companies').select('*')),
-      applyChapterFilter(supabase.from('workforce_hours').select('*'))
+      applyChapterFilter(supabase.from('workforce_hours').select('*')).range(0, HOURS_QUERY_MAX - 1)
     ]).then(([cyclesRes, grievRes, compRes, hoursRes]) => {
       if (cancelled) return
       if (cyclesRes.error) toast.error('Could not load negotiations: ' + describeError(cyclesRes.error))
