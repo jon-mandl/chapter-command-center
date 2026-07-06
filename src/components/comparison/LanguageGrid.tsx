@@ -58,7 +58,7 @@ function buildLangRows(
         }
       }
 
-      // Legacy fallback: derive from proposal_positions and current_language
+      // Legacy fallback: derive from proposal_positions
       const allPos = positions[p.id] ?? []
       const mgmtPos = allPos.filter((x) => x.side === 'Management').sort((a, b) => b.position_date.localeCompare(a.position_date))
       const laborPos = allPos.filter((x) => x.side === 'Labor').sort((a, b) => b.position_date.localeCompare(a.position_date))
@@ -69,7 +69,7 @@ function buildLangRows(
       return {
         proposal: p,
         sheetStatus: toSheetStatus(p.status),
-        currentText: p.current_language,
+        currentText: p.current_text,
         unionText: laborPos[0]?.position_text ?? null,
         unionChanged: laborPos.length > 0,
         mgmtText: mgmtPos[0]?.position_text ?? null,

@@ -305,8 +305,8 @@ function buildHtml(args: {
     <h2>Language Provisions</h2>
     ${lang.map((p) => {
       const ref = p.article_reference ? `<span class="ref">${esc(p.article_reference)}${p.section ? ` · § ${esc(p.section)}` : ''}</span>` : ''
-      const current = (p.current_text ?? p.current_language)
-        ? escBlock(p.current_text ?? p.current_language)
+      const current = p.current_text
+        ? escBlock(p.current_text)
         : '<div class="dim">New clause — no current language.</div>'
       const unionPos = p.union_change
         ? (p.union_text ? escBlock(p.union_text) : '<div class="dim">Change proposed — text pending.</div>')

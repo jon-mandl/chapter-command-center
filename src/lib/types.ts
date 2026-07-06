@@ -76,11 +76,8 @@ export interface Proposal {
   title: string
   category: ProposalCategory
   article_reference: string | null
-  // Legacy language field (still used by LanguageGrid for current_language display)
-  current_language: string | null
   proposed_by: ProposedBy | null
   status: ProposalStatus
-  sub_status: string | null
   sort_order: number
   priority: boolean
   notes: string | null

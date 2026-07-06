@@ -21,17 +21,9 @@ export function Pill({ tone = 'neutral', children, style }: {
 
 // ─── StatusPill ───────────────────────────────────────────────────────────────
 
-export function StatusPill({ status, isCounter = false }: {
-  status: SheetStatus
-  isCounter?: boolean
-}): React.JSX.Element {
+export function StatusPill({ status }: { status: SheetStatus }): React.JSX.Element {
   const s = STATUS_DISPLAY[status]
-  return (
-    <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
-      <Pill tone={s.tone}>{s.label}</Pill>
-      {isCounter && <Pill tone="warning">Counter</Pill>}
-    </span>
-  )
+  return <Pill tone={s.tone}>{s.label}</Pill>
 }
 
 // ─── PriorityFlag ─────────────────────────────────────────────────────────────

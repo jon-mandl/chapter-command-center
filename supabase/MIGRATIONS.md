@@ -55,6 +55,7 @@ npx supabase db push
 | 20260702130000 | add_gpep_and_discount_tier | Adds workforce_hours.gross_payroll (GPEP) and member_companies.discount_tier for service charge |
 | 20260702160000 | negotiation_closeout | Adds negotiation_cycles.settled_date and final_agreement_document_id for the Close Out flow |
 | 20260706090000 | negotiation_documents_admin_rls | Adds the missing is_admin() fallback to the negotiation_documents table and negotiation-documents storage policies (admins couldn't upload) |
+| 20260706150000 | drop_legacy_proposal_fields | Migrates current_language→current_text and proposed_change→notes, then drops current_language, proposed_change, sub_status from proposals |
 
 ---
 

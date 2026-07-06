@@ -354,7 +354,7 @@ export default function EconomicGrid({ proposals, positions, sessions, filter, o
 
                         {/* Status */}
                         <td style={{ padding: '9px 14px', borderBottom: isOpen ? 'none' : '1px solid #F1F5F9', verticalAlign: 'top' }}>
-                          <StatusPill status={sheetStatus} isCounter={p.sub_status === 'counter'} />
+                          <StatusPill status={sheetStatus} />
                         </td>
                       </tr>
 

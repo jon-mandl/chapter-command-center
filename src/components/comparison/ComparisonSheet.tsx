@@ -110,7 +110,7 @@ function LangSummary({ proposals }: {
   const counts = { total: langProps.length, open: 0, agreed: 0, tabled: 0, fresh: 0, mgmtOnly: 0, unionOnly: 0 }
   langProps.forEach((p) => {
     counts[toSheetStatus(p.status)]++
-    if (p.current_text == null && p.current_language == null) counts.fresh++
+    if (p.current_text == null) counts.fresh++
     if (p.mgmt_change && !p.union_change) counts.mgmtOnly++
     if (p.union_change && !p.mgmt_change) counts.unionOnly++
   })
