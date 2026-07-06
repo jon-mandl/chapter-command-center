@@ -59,6 +59,17 @@ function unitToFormat(unit: UnitOption): string {
   }
 }
 
+// Round to 2 decimals — avoids float artifacts when adding an increase to a base value.
+function round2(v: number): number {
+  return Math.round(v * 100) / 100
+}
+
+function fmtUnitVal(v: number, unit: UnitOption): string {
+  if (unit === '%') return `${round2(v)}%`
+  if (unit === '$/hr' || unit === '$/day') return `$${v.toFixed(2)}`
+  return `${round2(v)} ${unit}`
+}
+
 // ─── NegotiationDetail ────────────────────────────────────────────────────────
 
 export default function NegotiationDetail({ negotiationId, onBack }: {
@@ -1130,6 +1141,9 @@ function ProposalsTab({ cycleId, isLocked }: { cycleId: ID; isLocked: boolean })
 
   const [econForm, setEconForm] = useState<EconFormState>(defaultEconForm)
   const [langForm, setLangForm] = useState<LangFormState>(defaultLangForm)
+  // How the union/management value inputs are interpreted: as the full new
+  // amount, or as an increase added to the current value.
+  const [econEntryMode, setEconEntryMode] = useState<'total' | 'increase'>('total')
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState('')
 
@@ -1165,7 +1179,24 @@ function ProposalsTab({ cycleId, isLocked }: { cycleId: ID; isLocked: boolean })
     setEditingProposal(null)
     setEconForm(defaultEconForm)
     setLangForm(defaultLangForm)
+    setEconEntryMode('total')
     setSaveError('')
+  }
+
+  // Live hint under a union/management value input: shows the computed total
+  // in increase mode, or the change vs current in total mode.
+  function econHint(valueStr: string): React.JSX.Element | null {
+    const cur = parseFloat(econForm.current_value)
+    const val = parseFloat(valueStr)
+    if (Number.isNaN(cur) || Number.isNaN(val)) return null
+    let text: string
+    if (econEntryMode === 'increase') {
+      text = `= ${fmtUnitVal(round2(cur + val), econForm.unit)} total`
+    } else {
+      const d = round2(val - cur)
+      text = d === 0 ? 'No change vs current' : `${d > 0 ? '+' : '−'}${fmtUnitVal(Math.abs(d), econForm.unit)} vs current`
+    }
+    return <div style={{ fontSize: '11px', color: '#1E3A8A', fontWeight: 600, marginTop: '4px' }}>{text}</div>
   }
 
   function startEditEcon(p: Proposal): void {
@@ -1187,6 +1218,7 @@ function ProposalsTab({ cycleId, isLocked }: { cycleId: ID; isLocked: boolean })
       last_movement: p.last_movement ?? ''
     })
     setEditingProposal(p)
+    setEconEntryMode('total')
     setStep('economic-form')
   }
 
@@ -1232,7 +1264,19 @@ function ProposalsTab({ cycleId, isLocked }: { cycleId: ID; isLocked: boolean })
     setSaveError('')
     if (!econForm.title.trim()) { setSaveError('Item name is required.'); return }
     if (!econForm.current_value) { setSaveError('Current value is required.'); return }
-    if (!econForm.union_value) { setSaveError('Union position is required.'); return }
+    if (!econForm.union_value) { setSaveError(econEntryMode === 'increase' ? 'Union increase is required.' : 'Union position is required.'); return }
+
+    const cur = parseFloat(econForm.current_value)
+    const unionRaw = parseFloat(econForm.union_value)
+    const mgmtRaw = econForm.no_mgmt_counter ? null : (econForm.mgmt_value ? parseFloat(econForm.mgmt_value) : null)
+    if (Number.isNaN(cur) || Number.isNaN(unionRaw) || (mgmtRaw !== null && Number.isNaN(mgmtRaw))) {
+      setSaveError('Values must be numbers.')
+      return
+    }
+    // In increase mode the inputs are deltas; store the computed totals so
+    // every consumer (cards, comparison sheet, report) keeps working unchanged.
+    const unionVal = econEntryMode === 'increase' ? round2(cur + unionRaw) : unionRaw
+    const mgmtVal = mgmtRaw === null ? null : (econEntryMode === 'increase' ? round2(cur + mgmtRaw) : mgmtRaw)
     setSaving(true)
 
     const payload = {
@@ -1243,9 +1287,9 @@ function ProposalsTab({ cycleId, isLocked }: { cycleId: ID; isLocked: boolean })
       section: econForm.section.trim() || null,
       unit: econForm.unit,
       format: unitToFormat(econForm.unit),
-      current_value: parseFloat(econForm.current_value),
-      union_value: parseFloat(econForm.union_value),
-      mgmt_value: econForm.no_mgmt_counter ? null : (econForm.mgmt_value ? parseFloat(econForm.mgmt_value) : null),
+      current_value: cur,
+      union_value: unionVal,
+      mgmt_value: mgmtVal,
       proposed_by: econForm.proposed_by || null,
       cost_union: econForm.cost_union ? parseFloat(econForm.cost_union) : null,
       cost_mgmt: econForm.cost_mgmt ? parseFloat(econForm.cost_mgmt) : null,
@@ -1441,26 +1485,43 @@ function ProposalsTab({ cycleId, isLocked }: { cycleId: ID; isLocked: boolean })
           </div>
 
           <div style={{ borderTop: '1px solid #F1F5F9', paddingTop: '16px', marginBottom: '16px' }}>
-            <div style={{ fontSize: '11px', fontWeight: 700, color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '14px' }}>Positions</div>
+            <div style={{ fontSize: '11px', fontWeight: 700, color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '10px' }}>Positions</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '14px', flexWrap: 'wrap' }}>
+              <span style={{ fontSize: '12px', color: '#64748B' }}>Enter positions as:</span>
+              {([['total', 'Total amount'], ['increase', 'Increase over current']] as const).map(([mode, label]) => (
+                <label key={mode} style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '13px', color: '#475569' }}>
+                  <input type="radio" name="econ-entry-mode" checked={econEntryMode === mode} onChange={() => setEconEntryMode(mode)} />
+                  {label}
+                </label>
+              ))}
+            </div>
             <div className="grid-2col" style={{ marginBottom: '14px' }}>
               <div>
                 <label style={labelStyle}>Current Value <span style={{ color: '#ef4444' }}>*</span></label>
                 <input style={inputStyle} type="number" step="any" value={econForm.current_value} onChange={(e) => setEconForm({ ...econForm, current_value: e.target.value })} placeholder="What the contract says now" />
               </div>
               <div>
-                <label style={labelStyle}>Union Position <span style={{ color: '#ef4444' }}>*</span></label>
-                <input style={inputStyle} type="number" step="any" value={econForm.union_value} onChange={(e) => setEconForm({ ...econForm, union_value: e.target.value })} placeholder="Union's proposed value" />
+                <label style={labelStyle}>{econEntryMode === 'increase' ? 'Union Proposed Increase' : 'Union Position'} <span style={{ color: '#ef4444' }}>*</span></label>
+                <input
+                  style={inputStyle}
+                  type="number" step="any"
+                  value={econForm.union_value}
+                  onChange={(e) => setEconForm({ ...econForm, union_value: e.target.value })}
+                  placeholder={econEntryMode === 'increase' ? 'e.g. 2.00' : "Union's proposed value"}
+                />
+                {econHint(econForm.union_value)}
               </div>
               <div>
-                <label style={labelStyle}>Management Position</label>
+                <label style={labelStyle}>{econEntryMode === 'increase' ? 'Management Proposed Increase' : 'Management Position'}</label>
                 <input
                   style={{ ...inputStyle, opacity: econForm.no_mgmt_counter ? 0.4 : 1 }}
                   type="number" step="any"
                   value={econForm.no_mgmt_counter ? '' : econForm.mgmt_value}
                   disabled={econForm.no_mgmt_counter}
                   onChange={(e) => setEconForm({ ...econForm, mgmt_value: e.target.value })}
-                  placeholder="Management's counter"
+                  placeholder={econEntryMode === 'increase' ? 'e.g. 1.25' : "Management's counter"}
                 />
+                {!econForm.no_mgmt_counter && econHint(econForm.mgmt_value)}
                 <label style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '6px', cursor: 'pointer', fontSize: '12px', color: '#64748B' }}>
                   <input type="checkbox" checked={econForm.no_mgmt_counter} onChange={(e) => setEconForm({ ...econForm, no_mgmt_counter: e.target.checked, mgmt_value: '' })} />
                   No counter yet
@@ -1815,7 +1876,13 @@ function ProposalCard({ proposal, sessions, positions, expanded, isLocked, onTog
     const mgmt = proposal.mgmt_value
     if (cur == null && uni == null) return null
     const fmt = (v: number | null) => v == null ? '—' : (proposal.unit === '%' ? `${v}%` : `$${v}`)
-    return `Current: ${fmt(cur)} → Union: ${fmt(uni)}${mgmt != null ? ` → Mgmt: ${fmt(mgmt)}` : ''}`
+    const delta = (v: number | null): string => {
+      if (v == null || cur == null) return ''
+      const d = round2(v - cur)
+      if (d === 0) return ''
+      return ` (${d > 0 ? '+' : '−'}${fmt(Math.abs(d))})`
+    }
+    return `Current: ${fmt(cur)} → Union: ${fmt(uni)}${delta(uni)}${mgmt != null ? ` → Mgmt: ${fmt(mgmt)}${delta(mgmt)}` : ''}`
   }
 
   // Language quick summary
@@ -1841,7 +1908,7 @@ function ProposalCard({ proposal, sessions, positions, expanded, isLocked, onTog
             </span>
             {proposal.article_reference && (
               <span style={{ fontSize: '11px', fontWeight: 600, color: '#94A3B8' }}>
-                {proposal.article_reference}{proposal.section ? ` · § ${proposal.section}` : ''}
+                {proposal.article_reference}{proposal.section ? ` · § ${proposal.section}` : ''}
               </span>
             )}
             <span style={{ fontSize: '15px', fontWeight: 700, color: '#0F172A' }}>{proposal.title}</span>

@@ -3,6 +3,9 @@
 // quiet), then streams the built HTML into it via writeNegotiationReport.
 
 import { useEffect, useRef, useState } from 'react'
+import { supabase } from '../lib/supabase'
+import { describeError } from '../lib/errors'
+import { createSignedDownloadUrl } from '../lib/storage'
 import { btnPrimary, btnSecondary, errorBox } from '../lib/ui'
 import { writeNegotiationReport, DEFAULT_REPORT_SECTIONS } from '../lib/negotiationReport'
 import type { ReportEdition, ReportSections } from '../lib/negotiationReport'
@@ -26,6 +29,8 @@ const SECTION_LABELS: { key: keyof ReportSections; label: string; committeeOnly?
 export default function ExportReportModal({ cycle, union, onClose }: ExportReportModalProps): React.JSX.Element {
   const [edition, setEdition] = useState<ReportEdition>('member')
   const [sections, setSections] = useState<ReportSections>(DEFAULT_REPORT_SECTIONS)
+  const [downloadFiles, setDownloadFiles] = useState(false)
+  const [progress, setProgress] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const firstRadioRef = useRef<HTMLInputElement>(null)
@@ -46,7 +51,46 @@ export default function ExportReportModal({ cycle, union, onClose }: ExportRepor
     setSections((prev) => ({ ...prev, [key]: !prev[key] }))
   }
 
-  function handleGenerate(): void {
+  // Fetch each document via a signed URL and hand it to the browser as a
+  // download. Returns the names of files that could not be downloaded.
+  async function downloadDocumentFiles(): Promise<string[]> {
+    const { data, error: docsErr } = await supabase
+      .from('negotiation_documents')
+      .select('file_name, file_path')
+      .eq('cycle_id', cycle.id)
+      .order('uploaded_at')
+    if (docsErr) return ['(could not load the document list: ' + describeError(docsErr) + ')']
+
+    const docs = (data ?? []) as { file_name: string; file_path: string }[]
+    const failed: string[] = []
+    for (let i = 0; i < docs.length; i++) {
+      const doc = docs[i]
+      setProgress(`Downloading file ${i + 1} of ${docs.length}…`)
+      try {
+        const { url, error: urlErr } = await createSignedDownloadUrl('negotiationDocuments', doc.file_path)
+        if (urlErr || !url) { failed.push(doc.file_name); continue }
+        const res = await fetch(url)
+        if (!res.ok) { failed.push(doc.file_name); continue }
+        const blob = await res.blob()
+        const objectUrl = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = objectUrl
+        a.download = doc.file_name
+        document.body.appendChild(a)
+        a.click()
+        a.remove()
+        // Give the browser a beat between downloads so none get dropped.
+        await new Promise((r) => setTimeout(r, 400))
+        URL.revokeObjectURL(objectUrl)
+      } catch {
+        failed.push(doc.file_name)
+      }
+    }
+    setProgress('')
+    return failed
+  }
+
+  async function handleGenerate(): Promise<void> {
     setError('')
     // Must be synchronous with the click, or the browser blocks the tab.
     const win = window.open('', '_blank')
@@ -55,15 +99,23 @@ export default function ExportReportModal({ cycle, union, onClose }: ExportRepor
       return
     }
     setBusy(true)
-    void writeNegotiationReport(win, cycle, union, edition, sections).then((err) => {
+    const err = await writeNegotiationReport(win, cycle, union, edition, sections)
+    if (err) {
       setBusy(false)
-      if (err) {
-        win.close()
-        setError(err)
+      win.close()
+      setError(err)
+      return
+    }
+    if (sections.documents && downloadFiles) {
+      const failed = await downloadDocumentFiles()
+      if (failed.length > 0) {
+        setBusy(false)
+        setError(`The report was generated, but ${failed.length} file${failed.length !== 1 ? 's' : ''} could not be downloaded: ${failed.join(', ')}`)
         return
       }
-      onClose()
-    })
+    }
+    setBusy(false)
+    onClose()
   }
 
   const nothingChecked = !SECTION_LABELS.some(({ key, committeeOnly }) =>
@@ -137,19 +189,40 @@ export default function ExportReportModal({ cycle, union, onClose }: ExportRepor
           {SECTION_LABELS.map(({ key, label, committeeOnly }) => {
             if (committeeOnly && edition !== 'committee') return null
             return (
-              <label key={key} style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '13px', color: '#0F172A', padding: '3px 0' }}>
-                <input
-                  type="checkbox"
-                  checked={sections[key]}
-                  onChange={() => toggleSection(key)}
-                  disabled={busy}
-                />
-                {label}
-              </label>
+              <div key={key}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '13px', color: '#0F172A', padding: '3px 0' }}>
+                  <input
+                    type="checkbox"
+                    checked={sections[key]}
+                    onChange={() => toggleSection(key)}
+                    disabled={busy}
+                  />
+                  {label}
+                </label>
+                {key === 'documents' && sections.documents && (
+                  <div style={{ paddingLeft: '24px' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '13px', color: '#0F172A', padding: '3px 0' }}>
+                      <input
+                        type="checkbox"
+                        checked={downloadFiles}
+                        onChange={() => setDownloadFiles((v) => !v)}
+                        disabled={busy}
+                      />
+                      Also download the actual files
+                    </label>
+                    {downloadFiles && (
+                      <div style={{ fontSize: '11px', color: '#94A3B8', paddingLeft: '24px' }}>
+                        Each document saves separately to your Downloads folder. Your browser may ask permission for multiple downloads.
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
             )
           })}
         </div>
 
+        {progress && <div style={{ fontSize: '12px', color: '#64748B', marginBottom: '12px' }}>{progress}</div>}
         {error && <div style={errorBox}>{error}</div>}
 
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>

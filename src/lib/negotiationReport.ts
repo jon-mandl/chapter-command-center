@@ -86,6 +86,16 @@ function fmtVal(v: number | null, unit: string | null): string {
   return `${v}${unit ? ` ${esc(unit)}` : ''}`
 }
 
+// "(+$2.00)" change-vs-current annotation for a position value.
+function fmtDelta(v: number | null, current: number | null, unit: string | null): string {
+  if (v == null || current == null) return ''
+  const d = Math.round((v - current) * 100) / 100
+  if (d === 0) return ''
+  const abs = Math.abs(d)
+  const body = unit === '%' ? `${abs}%` : (unit === '$/hr' || unit === '$/day') ? `$${abs.toFixed(2)}` : `${abs}`
+  return ` <span class="delta">(${d > 0 ? '+' : '−'}${body})</span>`
+}
+
 function statusBadge(status: string): string {
   return `<span class="badge badge-${esc(status.toLowerCase())}">${esc(status)}</span>`
 }
@@ -277,8 +287,8 @@ function buildHtml(args: {
         <tr>
           <td>${p.priority ? '<span class="key-flag" title="Key issue">◆</span> ' : ''}<strong>${esc(p.title)}</strong>${ref}</td>
           <td class="num">${fmtVal(p.current_value, p.unit)}</td>
-          <td class="num">${fmtVal(p.union_value, p.unit)}</td>
-          <td class="num">${p.mgmt_value == null ? '<span class="dim">no counter</span>' : fmtVal(p.mgmt_value, p.unit)}</td>
+          <td class="num">${fmtVal(p.union_value, p.unit)}${fmtDelta(p.union_value, p.current_value, p.unit)}</td>
+          <td class="num">${p.mgmt_value == null ? '<span class="dim">no counter</span>' : fmtVal(p.mgmt_value, p.unit) + fmtDelta(p.mgmt_value, p.current_value, p.unit)}</td>
           ${includeInternal ? `<td class="num">${p.cost_union != null ? `$${p.cost_union.toFixed(2)}` : '—'} / ${p.cost_mgmt != null ? `$${p.cost_mgmt.toFixed(2)}` : '—'}</td>` : ''}
           <td>${statusBadge(p.status)}</td>
         </tr>${noteRow}`
@@ -461,6 +471,7 @@ function buildHtml(args: {
   .nowrap { white-space: nowrap; }
   .ref { font-size: 11px; color: #94A3B8; }
   .dim { color: #94A3B8; }
+  .delta { color: #64748B; font-size: 10px; }
   .key-flag { color: #92400E; }
   .note-row td { font-size: 11.5px; color: #475569; background: #FFFBEB; border-bottom: 1px solid #F1F5F9; }
   .badge { display: inline-block; font-size: 10px; font-weight: 700; padding: 1px 8px; border-radius: 20px; border: 1px solid; white-space: nowrap; }
