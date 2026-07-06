@@ -164,7 +164,13 @@ interface LanguageGridProps {
 export default function LanguageGrid({ proposals, positions, sessions, filter, onLoadPositions }: LanguageGridProps): React.JSX.Element {
   const [openCard, setOpenCard] = useState<string | null>(null)
 
-  useEffect(() => { setOpenCard(null) }, [filter])
+  // Collapse the expanded card when the filter changes — adjust-during-render
+  // pattern (React re-renders once with the new state, no effect cascade).
+  const [prevFilter, setPrevFilter] = useState(filter)
+  if (filter !== prevFilter) {
+    setPrevFilter(filter)
+    setOpenCard(null)
+  }
 
   const langProposals = proposals.filter((p) => p.category === 'Language')
 

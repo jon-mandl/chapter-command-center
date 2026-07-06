@@ -125,6 +125,27 @@ function gapScore(row: EconRow): number {
 
 const STATUS_RANK: Record<SheetStatus, number> = { open: 0, tabled: 1, agreed: 2 }
 
+// Module-level so React updates it in place instead of remounting per render.
+function SortBtn({ id, label, active, onSelect }: {
+  id: SortMode
+  label: string
+  active: boolean
+  onSelect: (id: SortMode) => void
+}): React.JSX.Element {
+  return (
+    <button
+      onClick={() => onSelect(id)}
+      style={{
+        padding: '5px 11px', fontSize: 12, fontWeight: active ? 600 : 500,
+        color: active ? '#1E3A8A' : '#64748B',
+        background: active ? '#EFF6FF' : '#fff',
+        border: `1px solid ${active ? '#BFD3F2' : '#E2E8F0'}`,
+        borderRadius: 6, cursor: 'pointer',
+      }}
+    >{label}</button>
+  )
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 interface EconomicGridProps {
@@ -139,7 +160,13 @@ export default function EconomicGrid({ proposals, positions, sessions, filter, o
   const [sort, setSort] = useState<SortMode>('article')
   const [openRow, setOpenRow] = useState<string | null>(null)
 
-  useEffect(() => { setOpenRow(null) }, [filter])
+  // Collapse the expanded row when the filter changes — adjust-during-render
+  // pattern (React re-renders once with the new state, no effect cascade).
+  const [prevFilter, setPrevFilter] = useState(filter)
+  if (filter !== prevFilter) {
+    setPrevFilter(filter)
+    setOpenRow(null)
+  }
 
   const econProposals = proposals.filter((p) => p.category === 'Economic')
 
@@ -193,19 +220,6 @@ export default function EconomicGrid({ proposals, positions, sessions, filter, o
     borderBottom: '1px solid #E2E8F0', background: '#fff', verticalAlign: 'bottom',
   }
 
-  const SortBtn = ({ id, label }: { id: SortMode; label: string }) => (
-    <button
-      onClick={() => setSort(id)}
-      style={{
-        padding: '5px 11px', fontSize: 12, fontWeight: sort === id ? 600 : 500,
-        color: sort === id ? '#1E3A8A' : '#64748B',
-        background: sort === id ? '#EFF6FF' : '#fff',
-        border: `1px solid ${sort === id ? '#BFD3F2' : '#E2E8F0'}`,
-        borderRadius: 6, cursor: 'pointer',
-      }}
-    >{label}</button>
-  )
-
   const isEmpty = displayRows.length === 0
 
   return (
@@ -215,9 +229,9 @@ export default function EconomicGrid({ proposals, positions, sessions, filter, o
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#94A3B8' }}>Sort</span>
           <div style={{ display: 'flex', gap: 6 }}>
-            <SortBtn id="article" label="By article" />
-            <SortBtn id="gap" label="Largest gap" />
-            <SortBtn id="status" label="By status" />
+            <SortBtn id="article" label="By article" active={sort === 'article'} onSelect={setSort} />
+            <SortBtn id="gap" label="Largest gap" active={sort === 'gap'} onSelect={setSort} />
+            <SortBtn id="status" label="By status" active={sort === 'status'} onSelect={setSort} />
           </div>
         </div>
         <span style={{ fontSize: 12, color: '#94A3B8' }}>Click any row to see rationale &amp; movement</span>

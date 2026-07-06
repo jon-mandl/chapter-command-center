@@ -25,6 +25,37 @@ interface ComparisonSheetProps {
 // specify annual_hours. Matches the form placeholder shown in the Overview tab.
 const DEFAULT_ANNUAL_HOURS = 1800
 
+// Summary-strip widgets. Module-level so React updates them in place instead
+// of remounting them on every parent render.
+
+function Count({ n, label, color }: { n: number; label: string; color: string }): React.JSX.Element {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+      <span style={{ fontSize: 22, fontWeight: 700, color: '#0F172A', lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{n}</span>
+      <span style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color }}>{label}</span>
+    </div>
+  )
+}
+
+function CostTile({ col, value, sub }: { col: { label: string; accent: string; bg: string; line: string }; value: string; sub: string }): React.JSX.Element {
+  return (
+    <div style={{ flex: 1, minWidth: 0, padding: '12px 16px', borderRadius: 8, background: col.bg, border: `1px solid ${col.line}` }}>
+      <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: col.accent, marginBottom: 6 }}>{col.label}</div>
+      <div style={{ fontSize: 20, fontWeight: 700, color: '#0F172A', fontVariantNumeric: 'tabular-nums', lineHeight: 1 }}>{value}</div>
+      <div style={{ fontSize: 12, color: '#64748B', marginTop: 4 }}>{sub}</div>
+    </div>
+  )
+}
+
+function LangTile({ n, label, col }: { n: number; label: string; col: { accent: string; bg: string; line: string } }): React.JSX.Element {
+  return (
+    <div style={{ flex: 1, padding: '12px 16px', borderRadius: 8, background: col.bg, border: `1px solid ${col.line}` }}>
+      <div style={{ fontSize: 20, fontWeight: 700, color: '#0F172A', fontVariantNumeric: 'tabular-nums', lineHeight: 1 }}>{n}</div>
+      <div style={{ fontSize: 12, color: col.accent, marginTop: 5, fontWeight: 600 }}>{label}</div>
+    </div>
+  )
+}
+
 function EconSummary({ proposals, annualHours }: {
   proposals: Proposal[]
   annualHours: number | null
@@ -42,21 +73,6 @@ function EconSummary({ proposals, annualHours }: {
     if (p.cost_mgmt != null) mgmtHr += p.cost_mgmt
   })
   const gapHr = Math.abs(unionHr - mgmtHr)
-
-  const Count = ({ n, label, color }: { n: number; label: string; color: string }) => (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-      <span style={{ fontSize: 22, fontWeight: 700, color: '#0F172A', lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{n}</span>
-      <span style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color }}>{label}</span>
-    </div>
-  )
-
-  const CostTile = ({ col, value, sub }: { col: { label: string; accent: string; bg: string; line: string }; value: string; sub: string }) => (
-    <div style={{ flex: 1, minWidth: 0, padding: '12px 16px', borderRadius: 8, background: col.bg, border: `1px solid ${col.line}` }}>
-      <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: col.accent, marginBottom: 6 }}>{col.label}</div>
-      <div style={{ fontSize: 20, fontWeight: 700, color: '#0F172A', fontVariantNumeric: 'tabular-nums', lineHeight: 1 }}>{value}</div>
-      <div style={{ fontSize: 12, color: '#64748B', marginTop: 4 }}>{sub}</div>
-    </div>
-  )
 
   return (
     <div style={{ display: 'flex', gap: 24, alignItems: 'stretch', marginTop: 18, flexWrap: 'wrap' }}>
@@ -99,20 +115,6 @@ function LangSummary({ proposals }: {
     if (p.union_change && !p.mgmt_change) counts.unionOnly++
   })
 
-  const Count = ({ n, label, color }: { n: number; label: string; color: string }) => (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-      <span style={{ fontSize: 22, fontWeight: 700, color: '#0F172A', lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{n}</span>
-      <span style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color }}>{label}</span>
-    </div>
-  )
-
-  const Tile = ({ n, label, col }: { n: number; label: string; col: { accent: string; bg: string; line: string } }) => (
-    <div style={{ flex: 1, padding: '12px 16px', borderRadius: 8, background: col.bg, border: `1px solid ${col.line}` }}>
-      <div style={{ fontSize: 20, fontWeight: 700, color: '#0F172A', fontVariantNumeric: 'tabular-nums', lineHeight: 1 }}>{n}</div>
-      <div style={{ fontSize: 12, color: col.accent, marginTop: 5, fontWeight: 600 }}>{label}</div>
-    </div>
-  )
-
   return (
     <div style={{ display: 'flex', gap: 24, alignItems: 'stretch', marginTop: 18, flexWrap: 'wrap' }}>
       <div style={{ display: 'flex', gap: 24, alignItems: 'center', padding: '4px 4px 4px 0' }}>
@@ -126,9 +128,9 @@ function LangSummary({ proposals }: {
       <div style={{ flex: 1, minWidth: 360 }}>
         <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#64748B', marginBottom: 8 }}>Where the changes are</div>
         <div style={{ display: 'flex', gap: 10 }}>
-          <Tile n={counts.fresh} label="New clauses" col={{ accent: '#475569', bg: '#F8FAFC', line: '#E2E8F0' }} />
-          <Tile n={counts.mgmtOnly} label="Management-only changes" col={COLS.mgmt} />
-          <Tile n={counts.unionOnly} label="Union-only changes" col={COLS.uni} />
+          <LangTile n={counts.fresh} label="New clauses" col={{ accent: '#475569', bg: '#F8FAFC', line: '#E2E8F0' }} />
+          <LangTile n={counts.mgmtOnly} label="Management-only changes" col={COLS.mgmt} />
+          <LangTile n={counts.unionOnly} label="Union-only changes" col={COLS.uni} />
         </div>
       </div>
     </div>
@@ -144,16 +146,14 @@ export default function ComparisonSheet({ cycle, union }: ComparisonSheetProps):
   const [proposals, setProposals] = useState<Proposal[]>([])
   const [positions, setPositions] = useState<Record<ID, ProposalPosition[]>>({})
   const [sessions, setSessions] = useState<NegotiationSession[]>([])
-  const [loading, setLoading] = useState(true)
+  // Which cycle the data belongs to; "loading" is derived from it, so a cycle
+  // switch shows the loading state without a setState-in-effect cascade.
+  const [loadedFor, setLoadedFor] = useState<ID | null>(null)
   const [loadError, setLoadError] = useState('')
-
-  // Reset filter when mode switches
-  useEffect(() => { setFilter('all') }, [mode])
 
   // Load proposals + sessions on mount
   useEffect(() => {
     let cancelled = false
-    setLoading(true)
     void Promise.all([
       supabase.from('proposals').select('*').eq('cycle_id', cycle.id).order('sort_order').order('created_at'),
       supabase.from('negotiation_sessions').select('*').eq('cycle_id', cycle.id).order('session_date', { ascending: false }),
@@ -165,10 +165,12 @@ export default function ComparisonSheet({ cycle, union }: ComparisonSheetProps):
         setProposals((propRes.data ?? []) as Proposal[])
       }
       if (!sessRes.error) setSessions((sessRes.data ?? []) as NegotiationSession[])
-      setLoading(false)
+      setLoadedFor(cycle.id)
     })
     return () => { cancelled = true }
   }, [cycle.id])
+
+  const loading = loadedFor !== cycle.id
 
   // Lazily load positions for a proposal (called by child grids)
   const handleLoadPositions = useCallback(async (proposalId: ID): Promise<void> => {
@@ -230,7 +232,7 @@ export default function ComparisonSheet({ cycle, union }: ComparisonSheetProps):
 
         {/* Mode toggle + description */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
-          <ModeToggle mode={mode} onChange={setMode} />
+          <ModeToggle mode={mode} onChange={(m) => { setMode(m); setFilter('all') }} />
           <span style={{ fontSize: 12, color: '#94A3B8' }}>
             {mode === 'econ' ? 'Economic terms — dollar values per item' : 'Contract language — clause text, side by side'}
           </span>
