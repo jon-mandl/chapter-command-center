@@ -53,6 +53,7 @@ npx supabase db push
 | 20260601000001 | add_negotiation_documents | Adds negotiation_documents table |
 | 20260702000000 | user_settings_cascade_delete | Cascade delete for user_settings |
 | 20260702130000 | add_gpep_and_discount_tier | Adds workforce_hours.gross_payroll (GPEP) and member_companies.discount_tier for service charge |
+| 20260702160000 | negotiation_closeout | Adds negotiation_cycles.settled_date and final_agreement_document_id for the Close Out flow |
 
 ---
 

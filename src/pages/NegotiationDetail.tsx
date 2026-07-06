@@ -4,8 +4,12 @@ import { useUserSettings } from '../lib/useUserSettings'
 import { useToast } from '../lib/toast'
 import { describeError } from '../lib/errors'
 import ConfirmDialog from '../lib/ConfirmDialog'
-import { inputStyle, btnPrimary, btnSecondary, btnDanger, card, labelStyle, errorBox, formatDate } from '../lib/ui'
+import { inputStyle, btnPrimary, btnSecondary, btnDanger, card, labelStyle, errorBox, formatDate, NEG_STATUS_COLORS, localUnionLabel } from '../lib/ui'
+import { loadClassificationsForUnion, loadCycleStats } from '../lib/negotiations'
+import type { CycleProposalCounts, CycleSessionSummary } from '../lib/negotiations'
 import ComparisonSheet from '../components/comparison/ComparisonSheet'
+import CloseOutModal from '../components/CloseOutModal'
+import ExportReportModal from '../components/ExportReportModal'
 import {
   STORAGE_BUCKETS,
   buildStoragePath,
@@ -16,7 +20,6 @@ import {
 import type {
   ID,
   NegotiationCycle,
-  NegotiationStatus,
   LocalUnion,
   NegotiationSession,
   SessionAttendee,
@@ -32,14 +35,6 @@ import type {
 } from '../lib/types'
 
 type Tab = 'overview' | 'sessions' | 'proposals' | 'comparison' | 'dashboard' | 'documents'
-
-const NEG_STATUSES: NegotiationStatus[] = ['Active', 'Settled', 'Archived']
-
-const STATUS_COLORS: Record<NegotiationStatus, { bg: string; color: string; border: string }> = {
-  Active:   { bg: '#f0fdf4', color: '#059669', border: '#bbf7d0' },
-  Settled:  { bg: '#EEF2FF', color: '#4F46E5', border: '#C7D2FE' },
-  Archived: { bg: '#F8FAFC', color: '#64748B', border: '#E2E8F0' }
-}
 
 const PROPOSAL_STATUSES: ProposalStatus[] = ['Open', 'TA', 'Withdrawn', 'Rejected']
 
@@ -78,6 +73,50 @@ export default function NegotiationDetail({ negotiationId, onBack }: {
   const [loadError, setLoadError] = useState('')
   const [activeTab, setActiveTab] = useState<Tab>('overview')
 
+  const [showCloseOut, setShowCloseOut] = useState(false)
+  const [confirmArchive, setConfirmArchive] = useState(false)
+  const [confirmReopen, setConfirmReopen] = useState(false)
+  const [lifecycleBusy, setLifecycleBusy] = useState(false)
+  const [showReport, setShowReport] = useState(false)
+
+  async function handleArchive(): Promise<void> {
+    if (!cycle) return
+    setLifecycleBusy(true)
+    const { data, error } = await supabase
+      .from('negotiation_cycles')
+      .update({ status: 'Archived' })
+      .eq('id', cycle.id)
+      .select()
+      .single()
+    setLifecycleBusy(false)
+    if (error || !data) {
+      toast.error('Could not archive: ' + describeError(error))
+      return
+    }
+    setCycle(data as NegotiationCycle)
+    setConfirmArchive(false)
+    toast.success('Negotiation archived.')
+  }
+
+  async function handleReopen(): Promise<void> {
+    if (!cycle) return
+    setLifecycleBusy(true)
+    const { data, error } = await supabase
+      .from('negotiation_cycles')
+      .update({ status: 'Active', settled_date: null, final_agreement_document_id: null })
+      .eq('id', cycle.id)
+      .select()
+      .single()
+    setLifecycleBusy(false)
+    if (error || !data) {
+      toast.error('Could not reopen: ' + describeError(error))
+      return
+    }
+    setCycle(data as NegotiationCycle)
+    setConfirmReopen(false)
+    toast.success('Negotiation reopened for editing.')
+  }
+
   useEffect(() => {
     let cancelled = false
 
@@ -102,8 +141,9 @@ export default function NegotiationDetail({ negotiationId, onBack }: {
   if (loading) return <div style={{ padding: '32px', fontSize: '13px', color: '#64748B' }}>Loading…</div>
   if (loadError || !cycle) return <div style={{ padding: '32px' }}><div style={errorBox}>{loadError || 'Negotiation not found.'}</div></div>
 
-  const isLocked = cycle.status === 'Archived'
-  const sc = STATUS_COLORS[cycle.status]
+  // Settled and Archived are both read-only; Reopen unlocks.
+  const isLocked = cycle.status !== 'Active'
+  const sc = NEG_STATUS_COLORS[cycle.status]
 
   const TABS: { id: Tab; label: string }[] = [
     { id: 'overview',    label: 'Overview' },
@@ -133,9 +173,43 @@ export default function NegotiationDetail({ negotiationId, onBack }: {
           {isLocked && (
             <span style={{ fontSize: '11px', color: '#94A3B8', display: 'flex', alignItems: 'center', gap: '4px' }}>
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-              Archived — read only
+              {cycle.status === 'Settled'
+                ? `Settled${cycle.settled_date ? ` ${formatDate(cycle.settled_date)}` : ''} — locked`
+                : 'Archived — locked'}
             </span>
           )}
+          <div style={{ marginLeft: 'auto', display: 'flex', gap: '8px', alignItems: 'center' }}>
+            <button
+              style={{ ...btnSecondary, fontSize: '12px', padding: '5px 12px' }}
+              onClick={() => setShowReport(true)}
+            >
+              Export Report
+            </button>
+            {cycle.status === 'Active' && (
+              <button
+                style={{ ...btnPrimary, fontSize: '12px', padding: '5px 12px' }}
+                onClick={() => setShowCloseOut(true)}
+              >
+                Close Out…
+              </button>
+            )}
+            {cycle.status === 'Settled' && (
+              <button
+                style={{ ...btnSecondary, fontSize: '12px', padding: '5px 12px' }}
+                onClick={() => setConfirmArchive(true)}
+              >
+                Archive
+              </button>
+            )}
+            {isLocked && (
+              <button
+                style={{ ...btnSecondary, fontSize: '12px', padding: '5px 12px' }}
+                onClick={() => setConfirmReopen(true)}
+              >
+                Reopen
+              </button>
+            )}
+          </div>
         </div>
 
         <div style={{ display: 'flex', gap: '0', overflowX: 'auto' }}>
@@ -159,35 +233,60 @@ export default function NegotiationDetail({ negotiationId, onBack }: {
       </div>
 
       <div style={{ flex: 1, overflowY: 'auto', background: '#F8FAFC' }}>
-        {activeTab === 'overview'   && <OverviewTab cycle={cycle} unions={unions} onUpdate={setCycle} toastError={toast.error} toastSuccess={toast.success} onTabChange={setActiveTab} />}
+        {activeTab === 'overview'   && <OverviewTab cycle={cycle} unions={unions} isLocked={isLocked} onUpdate={setCycle} toastError={toast.error} toastSuccess={toast.success} onTabChange={setActiveTab} />}
         {activeTab === 'dashboard'  && <DashboardTab cycle={cycle} onTabChange={setActiveTab} />}
         {activeTab === 'sessions'   && <SessionsTab cycleId={cycle.id} isLocked={isLocked} />}
         {activeTab === 'proposals'  && <ProposalsTab cycleId={cycle.id} isLocked={isLocked} />}
         {activeTab === 'comparison' && <ComparisonSheet cycle={cycle} union={unions.find((u) => u.id === cycle.local_union_id) ?? null} />}
         {activeTab === 'documents'  && <DocumentsTab cycleId={cycle.id} chapterId={cycle.chapter_id} isLocked={isLocked} />}
       </div>
+
+      {showCloseOut && (
+        <CloseOutModal
+          cycle={cycle}
+          onCancel={() => setShowCloseOut(false)}
+          onClosedOut={(updated) => {
+            setCycle(updated)
+            setShowCloseOut(false)
+            toast.success('Negotiation settled and locked.')
+          }}
+        />
+      )}
+
+      {showReport && (
+        <ExportReportModal
+          cycle={cycle}
+          union={unions.find((u) => u.id === cycle.local_union_id) ?? null}
+          onClose={() => setShowReport(false)}
+        />
+      )}
+
+      <ConfirmDialog
+        open={confirmArchive}
+        title="Archive negotiation?"
+        message={`Move "${cycle.name}" to the archive? It stays fully viewable and remains locked. You can reopen it at any time.`}
+        confirmLabel="Archive"
+        destructive={false}
+        busy={lifecycleBusy}
+        onConfirm={handleArchive}
+        onCancel={() => setConfirmArchive(false)}
+      />
+
+      <ConfirmDialog
+        open={confirmReopen}
+        title="Reopen negotiation?"
+        message={`Unlock "${cycle.name}" for editing? Its settlement date will be cleared until it is closed out again.`}
+        confirmLabel="Reopen"
+        destructive={false}
+        busy={lifecycleBusy}
+        onConfirm={handleReopen}
+        onCancel={() => setConfirmReopen(false)}
+      />
     </div>
   )
 }
 
 // ─── Dashboard Tab ────────────────────────────────────────────────────────────
-
-type ProposalCounts = {
-  total: number
-  open: number
-  ta: number
-  withdrawn: number
-  rejected: number
-  economic: number
-  language: number
-  priority: number
-}
-
-type SessionSummary = {
-  total: number
-  lastDate: string | null
-  attendeeCount: number
-}
 
 function ProgressBar({ value, total, color }: { value: number; total: number; color: string }): React.JSX.Element {
   const pct = total === 0 ? 0 : Math.round((value / total) * 100)
@@ -212,58 +311,26 @@ function DashboardTab({ cycle, onTabChange }: {
   cycle: NegotiationCycle
   onTabChange: (t: Tab) => void
 }): React.JSX.Element {
-  const [proposals, setProposals] = useState<ProposalCounts | null>(null)
-  const [sessions, setSessions] = useState<SessionSummary | null>(null)
+  const [proposals, setProposals] = useState<CycleProposalCounts | null>(null)
+  const [sessions, setSessions] = useState<CycleSessionSummary | null>(null)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
 
   useEffect(() => {
     let cancelled = false
-    void Promise.all([
-      supabase.from('proposals').select('id, status, category, priority').eq('cycle_id', cycle.id),
-      supabase.from('negotiation_sessions').select('id, session_date').eq('cycle_id', cycle.id).order('session_date', { ascending: false })
-    ]).then(async ([propRes, sessRes]) => {
+    void loadCycleStats(cycle.id).then(({ stats, error }) => {
       if (cancelled) return
-      if (propRes.error) {
-        setLoadError(describeError(propRes.error, 'Could not load proposal data.'))
+      if (error || !stats) {
+        setLoadError(error ?? 'Could not load stats.')
         setLoading(false)
         return
       }
-
-      const props = (propRes.data ?? []) as { status: string; category: string; priority: boolean }[]
-      const counts: ProposalCounts = {
-        total: props.length,
-        open: props.filter((p) => p.status === 'Open').length,
-        ta: props.filter((p) => p.status === 'TA').length,
-        withdrawn: props.filter((p) => p.status === 'Withdrawn').length,
-        rejected: props.filter((p) => p.status === 'Rejected').length,
-        economic: props.filter((p) => p.category === 'Economic').length,
-        language: props.filter((p) => p.category === 'Language').length,
-        priority: props.filter((p) => p.priority).length
-      }
-      setProposals(counts)
-
-      const sessList = sessRes.error ? [] : (sessRes.data ?? []) as { id: string; session_date: string }[]
-      const sessionIds = sessList.map((s) => s.id)
-      let attendeeCount = 0
-      if (sessionIds.length > 0) {
-        const { count } = await supabase
-          .from('session_attendees')
-          .select('id', { count: 'exact', head: true })
-          .in('session_id', sessionIds)
-        attendeeCount = count ?? 0
-      }
-
-      setSessions({
-        total: sessList.length,
-        lastDate: sessList[0]?.session_date ?? null,
-        attendeeCount
-      })
+      setProposals(stats.proposals)
+      setSessions(stats.sessions)
       setLoading(false)
     })
 
     return () => { cancelled = true }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cycle.id])
 
   if (loading) return <div style={{ padding: '32px', fontSize: '13px', color: '#64748B' }}>Loading…</div>
@@ -423,9 +490,10 @@ function MetaField({ label, value, onClick }: { label: string; value: string | n
   )
 }
 
-function OverviewTab({ cycle, unions, onUpdate, toastError, toastSuccess, onTabChange }: {
+function OverviewTab({ cycle, unions, isLocked, onUpdate, toastError, toastSuccess, onTabChange }: {
   cycle: NegotiationCycle
   unions: LocalUnion[]
+  isLocked: boolean
   onUpdate: (n: NegotiationCycle) => void
   toastError: (m: string) => void
   toastSuccess: (m: string) => void
@@ -439,7 +507,6 @@ function OverviewTab({ cycle, unions, onUpdate, toastError, toastSuccess, onTabC
     neca_chapter_division: cycle.neca_chapter_division ?? '',
     cba_expiration_date: cycle.cba_expiration_date ?? '',
     proposed_effective_date: cycle.proposed_effective_date ?? '',
-    status: cycle.status,
     unit_size: cycle.unit_size?.toString() ?? '',
     annual_hours: cycle.annual_hours?.toString() ?? '',
     notes: cycle.notes ?? ''
@@ -454,48 +521,30 @@ function OverviewTab({ cycle, unions, onUpdate, toastError, toastSuccess, onTabC
 
   useEffect(() => {
     let cancelled = false
-    void Promise.all([
-      supabase.from('proposals').select('id, status').eq('cycle_id', cycle.id),
-      supabase.from('negotiation_sessions').select('id, session_date').eq('cycle_id', cycle.id).order('session_date', { ascending: false })
-    ]).then(([pRes, sRes]) => {
-      if (cancelled) return
-      if (!pRes.error) {
-        const proposals = (pRes.data ?? []) as { status: string }[]
-        const counts = { total: proposals.length, open: 0, agreed: 0, tabled: 0 }
-        proposals.forEach((p) => {
-          if (p.status === 'TA') counts.agreed++
-          else if (p.status === 'Withdrawn' || p.status === 'Rejected') counts.tabled++
-          else counts.open++
-        })
-        setProposalCount(counts)
-      }
-      if (!sRes.error) {
-        const sessions = (sRes.data ?? []) as { session_date: string }[]
-        setSessionCount({ total: sessions.length, lastDate: sessions[0]?.session_date ?? null })
-      }
+    void loadCycleStats(cycle.id).then(({ stats }) => {
+      if (cancelled || !stats) return
+      setProposalCount({
+        total: stats.proposals.total,
+        open: stats.proposals.open,
+        agreed: stats.proposals.ta,
+        tabled: stats.proposals.withdrawn + stats.proposals.rejected
+      })
+      setSessionCount({ total: stats.sessions.total, lastDate: stats.sessions.lastDate })
     })
     return () => { cancelled = true }
   }, [cycle.id])
 
-  async function loadClassificationsForUnion(localUnionId: string): Promise<string[]> {
-    if (!localUnionId) return []
-    const { data } = await supabase
-      .from('wage_packages')
-      .select('classification')
-      .eq('local_union_id', localUnionId)
-      .order('classification')
-    return Array.from(new Set((data ?? []).map((r: { classification: string }) => r.classification).filter(Boolean)))
-  }
-
   async function handleEditOpen(): Promise<void> {
     setEditing(true)
-    const loaded = await loadClassificationsForUnion(cycle.local_union_id)
+    const { classifications: loaded, error } = await loadClassificationsForUnion(cycle.local_union_id)
+    if (error) { toastError(error); return }
     setClassifications(loaded)
   }
 
   async function handleEditUnionChange(localUnionId: string): Promise<void> {
     setForm((prev) => ({ ...prev, local_union_id: localUnionId, classification: '' }))
-    const loaded = await loadClassificationsForUnion(localUnionId)
+    const { classifications: loaded, error } = await loadClassificationsForUnion(localUnionId)
+    if (error) { toastError(error); return }
     setClassifications(loaded)
     if (loaded.length > 0) setForm((prev) => ({ ...prev, classification: loaded[0] }))
   }
@@ -503,17 +552,17 @@ function OverviewTab({ cycle, unions, onUpdate, toastError, toastSuccess, onTabC
   async function handleSave(): Promise<void> {
     setSaveError('')
     if (!form.name.trim()) { setSaveError('Name is required.'); return }
+    if (!form.classification.trim()) { setSaveError('Classification is required.'); return }
     setSaving(true)
     const { data, error } = await supabase
       .from('negotiation_cycles')
       .update({
         name: form.name.trim(),
         local_union_id: form.local_union_id,
-        classification: form.classification.trim() || 'Journeyman',
+        classification: form.classification.trim(),
         neca_chapter_division: form.neca_chapter_division.trim() || null,
         cba_expiration_date: form.cba_expiration_date || null,
         proposed_effective_date: form.proposed_effective_date || null,
-        status: form.status,
         unit_size: form.unit_size ? parseInt(form.unit_size, 10) : null,
         annual_hours: form.annual_hours ? parseInt(form.annual_hours, 10) : null,
         notes: form.notes.trim() || null
@@ -534,9 +583,7 @@ function OverviewTab({ cycle, unions, onUpdate, toastError, toastSuccess, onTabC
   }
 
   function unionLabel(id: ID): string {
-    const u = unions.find((x) => x.id === id)
-    if (!u) return '—'
-    return `Local ${u.local_number}${u.city ? ` — ${u.city}` : ''}`
+    return localUnionLabel(unions.find((x) => x.id === id))
   }
 
   const proposalSummary = proposalCount
@@ -559,7 +606,7 @@ function OverviewTab({ cycle, unions, onUpdate, toastError, toastSuccess, onTabC
     <div className="page-content">
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '24px', flexWrap: 'wrap', gap: '12px' }}>
         <h1 style={{ fontSize: '20px', fontWeight: 700, color: '#0F172A', margin: 0 }}>{cycle.name}</h1>
-        {!editing && <button style={btnSecondary} onClick={() => void handleEditOpen()}>Edit</button>}
+        {!editing && !isLocked && <button style={btnSecondary} onClick={() => void handleEditOpen()}>Edit</button>}
       </div>
 
       {editing ? (
@@ -606,12 +653,6 @@ function OverviewTab({ cycle, unions, onUpdate, toastError, toastSuccess, onTabC
               <label style={labelStyle}>Proposed Effective Date</label>
               <input type="date" style={inputStyle} value={form.proposed_effective_date} onChange={(e) => setForm({ ...form, proposed_effective_date: e.target.value })} />
             </div>
-            <div style={{ gridColumn: '1 / -1' }}>
-              <label style={labelStyle}>Status</label>
-              <select style={inputStyle} value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value as NegotiationStatus })}>
-                {NEG_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
-              </select>
-            </div>
           </div>
 
           <div style={{ borderTop: '1px solid #F1F5F9', paddingTop: '14px', marginBottom: '14px' }}>
@@ -649,6 +690,7 @@ function OverviewTab({ cycle, unions, onUpdate, toastError, toastSuccess, onTabC
             <MetaField label="NECA Chapter / Division" value={cycle.neca_chapter_division} />
             <MetaField label="CBA Expiration" value={formatDate(cycle.cba_expiration_date)} />
             <MetaField label="Proposed Effective Date" value={formatDate(cycle.proposed_effective_date)} />
+            {cycle.settled_date && <MetaField label="Settled" value={formatDate(cycle.settled_date)} />}
             <MetaField
               label="Proposals"
               value={proposalSummary}
@@ -1168,6 +1210,24 @@ function ProposalsTab({ cycleId, isLocked }: { cycleId: ID; isLocked: boolean })
     setStep('language-form')
   }
 
+  // Shared insert/update plumbing for both proposal forms.
+  async function saveProposal(payload: Record<string, unknown>): Promise<void> {
+    if (editingProposal) {
+      const { data, error: err } = await supabase.from('proposals').update(payload).eq('id', editingProposal.id).select().single()
+      setSaving(false)
+      if (err || !data) { setSaveError(describeError(err, 'Could not save.')); toast.error('Could not save.'); return }
+      setProposals((prev) => prev.map((p) => p.id === editingProposal.id ? data as Proposal : p))
+      toast.success('Proposal updated.')
+    } else {
+      const { data, error: err } = await supabase.from('proposals').insert(payload).select().single()
+      setSaving(false)
+      if (err || !data) { setSaveError(describeError(err, 'Could not save.')); toast.error('Could not save.'); return }
+      setProposals((prev) => [...prev, data as Proposal])
+      toast.success('Proposal added.')
+    }
+    cancelForm()
+  }
+
   async function handleSaveEcon(): Promise<void> {
     setSaveError('')
     if (!econForm.title.trim()) { setSaveError('Item name is required.'); return }
@@ -1196,20 +1256,7 @@ function ProposalsTab({ cycleId, isLocked }: { cycleId: ID; isLocked: boolean })
       sort_order: editingProposal ? editingProposal.sort_order : proposals.length
     }
 
-    if (editingProposal) {
-      const { data, error: err } = await supabase.from('proposals').update(payload).eq('id', editingProposal.id).select().single()
-      setSaving(false)
-      if (err || !data) { setSaveError(describeError(err, 'Could not save.')); toast.error('Could not save.'); return }
-      setProposals((prev) => prev.map((p) => p.id === editingProposal.id ? data as Proposal : p))
-      toast.success('Proposal updated.')
-    } else {
-      const { data, error: err } = await supabase.from('proposals').insert(payload).select().single()
-      setSaving(false)
-      if (err || !data) { setSaveError(describeError(err, 'Could not save.')); toast.error('Could not save.'); return }
-      setProposals((prev) => [...prev, data as Proposal])
-      toast.success('Proposal added.')
-    }
-    cancelForm()
+    await saveProposal(payload)
   }
 
   async function handleSaveLang(): Promise<void> {
@@ -1235,20 +1282,7 @@ function ProposalsTab({ cycleId, isLocked }: { cycleId: ID; isLocked: boolean })
       sort_order: editingProposal ? editingProposal.sort_order : proposals.length
     }
 
-    if (editingProposal) {
-      const { data, error: err } = await supabase.from('proposals').update(payload).eq('id', editingProposal.id).select().single()
-      setSaving(false)
-      if (err || !data) { setSaveError(describeError(err, 'Could not save.')); toast.error('Could not save.'); return }
-      setProposals((prev) => prev.map((p) => p.id === editingProposal.id ? data as Proposal : p))
-      toast.success('Proposal updated.')
-    } else {
-      const { data, error: err } = await supabase.from('proposals').insert(payload).select().single()
-      setSaving(false)
-      if (err || !data) { setSaveError(describeError(err, 'Could not save.')); toast.error('Could not save.'); return }
-      setProposals((prev) => [...prev, data as Proposal])
-      toast.success('Proposal added.')
-    }
-    cancelForm()
+    await saveProposal(payload)
   }
 
   async function handleStatusChange(proposal: Proposal, newStatus: ProposalStatus): Promise<void> {

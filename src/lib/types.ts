@@ -39,6 +39,8 @@ export interface NegotiationCycle {
   unit_size: number | null
   annual_hours: number | null
   notes: string | null
+  settled_date: string | null
+  final_agreement_document_id: ID | null
   created_at: string
   updated_at: string
 }

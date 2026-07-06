@@ -1,5 +1,7 @@
 // Shared style tokens — import from here, never redefine locally
 
+import type { NegotiationStatus, LocalUnion } from './types'
+
 // ─── Brand Colors ─────────────────────────────────────────────────────────────
 export const COLORS = {
   navy:        '#1E3A8A',   // NECA primary navy
@@ -131,6 +133,20 @@ export const pageSubtitle: React.CSSProperties = {
   fontSize: '14px',
   color: '#64748B',
   margin: '0 0 28px'
+}
+
+// Status pill colors for negotiation cycles — used by the Negotiations list,
+// the NegotiationDetail header, and the Comparison Sheet.
+export const NEG_STATUS_COLORS: Record<NegotiationStatus, { bg: string; color: string; border: string }> = {
+  Active:   { bg: '#f0fdf4', color: '#059669', border: '#bbf7d0' },
+  Settled:  { bg: '#EEF2FF', color: '#4F46E5', border: '#C7D2FE' },
+  Archived: { bg: '#F8FAFC', color: '#64748B', border: '#E2E8F0' }
+}
+
+// "Local 11 — Los Angeles" display label for a local union.
+export function localUnionLabel(union: LocalUnion | null | undefined): string {
+  if (!union) return '—'
+  return `Local ${union.local_number}${union.city ? ` — ${union.city}` : ''}`
 }
 
 export function formatDate(iso: string | null | undefined): string {

@@ -5,7 +5,8 @@ import { useToast } from '../lib/toast'
 import { describeError } from '../lib/errors'
 import ConfirmDialog from '../lib/ConfirmDialog'
 import { STORAGE_BUCKETS } from '../lib/storage'
-import { inputStyle, btnPrimary, btnSecondary, btnDanger, card, labelStyle, errorBox, formatDate, thStyle, tdStyle } from '../lib/ui'
+import { inputStyle, btnPrimary, btnSecondary, btnDanger, card, labelStyle, errorBox, formatDate, thStyle, tdStyle, NEG_STATUS_COLORS, localUnionLabel } from '../lib/ui'
+import { loadClassificationsForUnion } from '../lib/negotiations'
 import type { NegotiationCycle, LocalUnion, ID, NegotiationStatus } from '../lib/types'
 
 interface NegotiationsProps {
@@ -13,11 +14,7 @@ interface NegotiationsProps {
   onNavigateToLocalUnions: () => void
 }
 
-const STATUS_COLORS: Record<NegotiationStatus, { bg: string; color: string; border: string }> = {
-  Active:   { bg: '#f0fdf4', color: '#059669', border: '#bbf7d0' },
-  Settled:  { bg: '#EEF2FF', color: '#4F46E5', border: '#C7D2FE' },
-  Archived: { bg: '#F8FAFC', color: '#64748B', border: '#E2E8F0' }
-}
+const STATUS_FILTERS = ['all', 'Active', 'Settled', 'Archived'] as const
 
 export default function Negotiations({ onOpenNegotiation, onNavigateToLocalUnions }: NegotiationsProps): React.JSX.Element {
   const { effectiveChapterId, applyChapterFilter, loading: chapterLoading } = useUserSettings()
@@ -35,6 +32,9 @@ export default function Negotiations({ onOpenNegotiation, onNavigateToLocalUnion
 
   const [confirmDelete, setConfirmDelete] = useState<NegotiationCycle | null>(null)
   const [deleting, setDeleting] = useState(false)
+
+  const [statusFilter, setStatusFilter] = useState<'all' | NegotiationStatus>('all')
+  const [search, setSearch] = useState('')
 
   useEffect(() => {
     let cancelled = false
@@ -65,15 +65,14 @@ export default function Negotiations({ onOpenNegotiation, onNavigateToLocalUnion
     setForm((prev) => ({ ...prev, local_union_id: localUnionId, classification: '' }))
     setClassifications([])
     if (!localUnionId) return
-    const { data } = await supabase
-      .from('wage_packages')
-      .select('classification')
-      .eq('local_union_id', localUnionId)
-      .order('classification')
-    const distinct = Array.from(new Set((data ?? []).map((r: { classification: string }) => r.classification).filter(Boolean)))
-    setClassifications(distinct)
-    if (distinct.length > 0) {
-      setForm((prev) => ({ ...prev, classification: distinct[0] }))
+    const { classifications: loaded, error } = await loadClassificationsForUnion(localUnionId)
+    if (error) {
+      toast.error(error)
+      return
+    }
+    setClassifications(loaded)
+    if (loaded.length > 0) {
+      setForm((prev) => ({ ...prev, classification: loaded[0] }))
     }
   }
 
@@ -86,6 +85,7 @@ export default function Negotiations({ onOpenNegotiation, onNavigateToLocalUnion
     const name = form.name.trim()
     if (!name) { setSaveError('Negotiation name is required.'); return }
     if (!form.local_union_id) { setSaveError('Select a local union.'); return }
+    if (!form.classification.trim()) { setSaveError('Classification is required.'); return }
 
     setSaving(true)
     const { data, error } = await supabase
@@ -94,7 +94,7 @@ export default function Negotiations({ onOpenNegotiation, onNavigateToLocalUnion
         chapter_id: effectiveChapterId,
         local_union_id: form.local_union_id,
         name,
-        classification: form.classification.trim() || 'Journeyman',
+        classification: form.classification.trim(),
         cba_expiration_date: form.cba_expiration_date || null,
         status: 'Active'
       })
@@ -156,15 +156,17 @@ export default function Negotiations({ onOpenNegotiation, onNavigateToLocalUnion
   }
 
   function unionLabel(localUnionId: ID): string {
-    const u = unions.find((x) => x.id === localUnionId)
-    if (!u) return '—'
-    const loc = `Local ${u.local_number}`
-    return u.city ? `${loc} — ${u.city}` : loc
+    return localUnionLabel(unions.find((x) => x.id === localUnionId))
   }
 
   if (chapterLoading || loading) {
     return <div style={{ padding: '32px', fontSize: '13px', color: '#64748B' }}>Loading…</div>
   }
+
+  const visible = cycles.filter((c) =>
+    (statusFilter === 'all' || c.status === statusFilter) &&
+    (!search.trim() || c.name.toLowerCase().includes(search.trim().toLowerCase()))
+  )
 
   return (
     <div className="page-content">
@@ -253,55 +255,93 @@ export default function Negotiations({ onOpenNegotiation, onNavigateToLocalUnion
           <button style={btnPrimary} onClick={() => setShowForm(true)}>Create First Negotiation</button>
         </div>
       ) : cycles.length > 0 && (
-        <div style={{ background: '#fff', border: '1px solid #E2E8F0', borderRadius: '10px', overflow: 'hidden' }}>
-          <div className="table-scroll">
-          <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '560px' }}>
-            <thead>
-              <tr>
-                <th style={thStyle} scope="col">Name</th>
-                <th style={thStyle} scope="col">Local Union</th>
-                <th style={thStyle} scope="col">CBA Expires</th>
-                <th style={thStyle} scope="col">Status</th>
-                <th style={{ ...thStyle, width: '80px' }} scope="col"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {cycles.map((c) => {
-                const sc = STATUS_COLORS[c.status]
-                return (
-                  <tr key={c.id}>
-                    <td style={tdStyle}>
-                      <button
-                        onClick={() => onOpenNegotiation(c.id)}
-                        style={{ background: 'none', border: 'none', padding: 0, color: '#1E3A8A', fontWeight: 600, fontSize: '13px', cursor: 'pointer', textAlign: 'left' }}
-                      >
-                        {c.name}
-                      </button>
-                    </td>
-                    <td style={tdStyle}>{unionLabel(c.local_union_id)}</td>
-                    <td style={tdStyle}>{formatDate(c.cba_expiration_date)}</td>
-                    <td style={tdStyle}>
-                      <span style={{ fontSize: '11px', fontWeight: 600, padding: '2px 8px', borderRadius: '20px', background: sc.bg, color: sc.color, border: `1px solid ${sc.border}` }}>
-                        {c.status}
-                      </span>
-                    </td>
-                    <td style={{ ...tdStyle, textAlign: 'right' }}>
-                      <button
-                        aria-label={`Delete ${c.name}`}
-                        title={`Delete ${c.name}`}
-                        onClick={() => setConfirmDelete(c)}
-                        style={{ ...btnDanger, fontSize: '12px', padding: '4px 10px' }}
-                      >
-                        Delete
-                      </button>
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
+        <>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', marginBottom: '16px', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+              {STATUS_FILTERS.map((s) => (
+                <button
+                  key={s}
+                  onClick={() => setStatusFilter(s)}
+                  style={{
+                    padding: '5px 12px', fontSize: '12px', fontWeight: 500, borderRadius: '20px', cursor: 'pointer',
+                    background: statusFilter === s ? '#1E3A8A' : '#F8FAFC',
+                    color: statusFilter === s ? '#fff' : '#64748B',
+                    border: statusFilter === s ? '1px solid #1E3A8A' : '1px solid #E2E8F0'
+                  }}
+                >
+                  {s === 'all' ? `All (${cycles.length})` : `${s} (${cycles.filter((c) => c.status === s).length})`}
+                </button>
+              ))}
+            </div>
+            <input
+              style={{ ...inputStyle, width: '220px' }}
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search by name…"
+              aria-label="Search negotiations by name"
+            />
           </div>
-        </div>
+
+          {visible.length === 0 ? (
+            <div style={{ fontSize: '13px', color: '#94A3B8', padding: '32px 0', textAlign: 'center' }}>
+              No negotiations match that filter.
+            </div>
+          ) : (
+            <div style={{ background: '#fff', border: '1px solid #E2E8F0', borderRadius: '10px', overflow: 'hidden' }}>
+              <div className="table-scroll">
+              <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '640px' }}>
+                <thead>
+                  <tr>
+                    <th style={thStyle} scope="col">Name</th>
+                    <th style={thStyle} scope="col">Local Union</th>
+                    <th style={thStyle} scope="col">CBA Expires</th>
+                    <th style={thStyle} scope="col">Status</th>
+                    <th style={thStyle} scope="col">Settled</th>
+                    <th style={{ ...thStyle, width: '80px' }} scope="col"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {visible.map((c) => {
+                    const sc = NEG_STATUS_COLORS[c.status]
+                    return (
+                      <tr key={c.id}>
+                        <td style={tdStyle}>
+                          <button
+                            onClick={() => onOpenNegotiation(c.id)}
+                            style={{ background: 'none', border: 'none', padding: 0, color: '#1E3A8A', fontWeight: 600, fontSize: '13px', cursor: 'pointer', textAlign: 'left' }}
+                          >
+                            {c.name}
+                          </button>
+                        </td>
+                        <td style={tdStyle}>{unionLabel(c.local_union_id)}</td>
+                        <td style={tdStyle}>{formatDate(c.cba_expiration_date)}</td>
+                        <td style={tdStyle}>
+                          <span style={{ fontSize: '11px', fontWeight: 600, padding: '2px 8px', borderRadius: '20px', background: sc.bg, color: sc.color, border: `1px solid ${sc.border}` }}>
+                            {c.status}
+                          </span>
+                        </td>
+                        <td style={tdStyle}>{formatDate(c.settled_date)}</td>
+                        <td style={{ ...tdStyle, textAlign: 'right' }}>
+                          {c.status === 'Active' && (
+                            <button
+                              aria-label={`Delete ${c.name}`}
+                              title={`Delete ${c.name}`}
+                              onClick={() => setConfirmDelete(c)}
+                              style={{ ...btnDanger, fontSize: '12px', padding: '4px 10px' }}
+                            >
+                              Delete
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+              </div>
+            </div>
+          )}
+        </>
       )}
 
       <ConfirmDialog

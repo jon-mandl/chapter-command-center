@@ -6,6 +6,7 @@ import { supabase } from '../../lib/supabase'
 import { describeError } from '../../lib/errors'
 import { useToast } from '../../lib/toast'
 import { toSheetStatus, formatMoney, COLS, type SheetStatus } from '../../lib/comparison-utils'
+import { NEG_STATUS_COLORS } from '../../lib/ui'
 import { ModeToggle, FilterTabs, Pill, type ComparisonMode, type FilterValue } from './primitives'
 import EconomicGrid from './EconomicGrid'
 import LanguageGrid from './LanguageGrid'
@@ -222,7 +223,7 @@ export default function ComparisonSheet({ cycle, union }: ComparisonSheetProps):
           {cycle.cba_expiration_date && (
             <span>Agreement expires {new Date(cycle.cba_expiration_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</span>
           )}
-          <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 20, background: cycle.status === 'Active' ? '#f0fdf4' : '#F8FAFC', color: cycle.status === 'Active' ? '#059669' : '#64748B', border: `1px solid ${cycle.status === 'Active' ? '#bbf7d0' : '#E2E8F0'}` }}>
+          <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 20, background: NEG_STATUS_COLORS[cycle.status].bg, color: NEG_STATUS_COLORS[cycle.status].color, border: `1px solid ${NEG_STATUS_COLORS[cycle.status].border}` }}>
             {cycle.status}
           </span>
         </div>
