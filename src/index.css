@@ -135,18 +135,6 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   border: 0;
 }
 
-/* Flex row that wraps on mobile */
-.flex-wrap-mobile {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-@media (max-width: 600px) {
-  .flex-wrap-mobile {
-    flex-wrap: wrap;
-  }
-}
-
 /* ─── Master-detail split panel ─────────────────────────────────────────────── */
 
 /* On desktop: left list panel + right detail panel side-by-side.

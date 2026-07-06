@@ -76,9 +76,8 @@ export interface Proposal {
   title: string
   category: ProposalCategory
   article_reference: string | null
-  // Legacy language fields (still used by LanguageGrid for current_language display)
+  // Legacy language field (still used by LanguageGrid for current_language display)
   current_language: string | null
-  proposed_change: string | null
   proposed_by: ProposedBy | null
   status: ProposalStatus
   sub_status: string | null
@@ -233,33 +232,6 @@ export interface WorkforceHours {
   employer_name: string | null
   classification: string | null
   source: string | null
-  created_at: string
-}
-
-export type DeadlineType = 'CBA Expiration' | 'Filing Deadline' | 'Meeting' | 'Report Due' | 'Other'
-
-export interface Deadline {
-  id: ID
-  chapter_id: ID
-  title: string
-  deadline_date: string
-  deadline_type: DeadlineType
-  related_cycle_id: ID | null
-  notes: string | null
-  is_complete: boolean
-  created_at: string
-}
-
-export interface ActivityLogEntry {
-  id: ID
-  chapter_id: ID
-  user_id: ID | null
-  user_email: string | null
-  action: string
-  entity_type: string
-  entity_id: ID | null
-  entity_label: string | null
-  details: unknown
   created_at: string
 }
 

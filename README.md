@@ -15,13 +15,14 @@ chapter.
 |---|---|
 | Framework | React 19 + TypeScript |
 | Build tool | Vite 8 |
-| Backend | Supabase (Postgres + Auth + Storage) |
-| Charts | Recharts |
+| Backend | Supabase (Postgres + Auth + Storage + Edge Functions) |
+| Excel import | ExcelJS (dynamic import) |
 | Styling | Inline styles via a shared token file (`src/lib/ui.ts`) |
-| Hosting (recommended) | Vercel |
+| Hosting | Vercel (auto-deploys `main`) |
 
 No state-management library, no UI framework. The app uses React local state
-and a single React context (`ToastProvider`) for in-app notifications.
+plus two contexts: `ToastProvider` (notifications) and `UserSettingsProvider`
+(current user, role, and chapter scoping).
 
 ## Prerequisites
 
@@ -46,9 +47,11 @@ npm run dev
 # Visit http://localhost:5173
 ```
 
-On first sign-up, the app will create a default chapter (`"My Chapter"`) for
-the new user and link it to their account via the `user_settings` table. You
-can rename the chapter under Settings → General.
+Access is invite-only — there is no public sign-up form. An admin creates
+chapters and invites users from **User Management** (the `invite-user` Edge
+Function sends the email and applies the chapter/role on acceptance). New
+non-admin users see a "pending chapter assignment" screen until an admin
+assigns them a chapter, then complete a one-time profile form.
 
 ## Available scripts
 
@@ -62,10 +65,11 @@ can rename the chapter under Settings → General.
 ## Database schema (current)
 
 The app expects these tables (all in `public`, all with Row Level Security
-enabled). The Supabase project ID this codebase points at is configured via
-`.env.local`; the schema is *not* yet versioned in this repo — schema changes
-are applied directly through the Supabase dashboard or CLI. Adding a
-`supabase/migrations/` directory to lock the schema is on the roadmap.
+enabled). The Supabase project this codebase points at is configured via
+`.env.local`. The schema is versioned in `supabase/migrations/` — see
+`supabase/MIGRATIONS.md` for the workflow (write a timestamped `.sql` file,
+apply it to the live project, commit it). Never change the schema through the
+dashboard without also committing a migration.
 
 Core tables:
 
@@ -82,15 +86,18 @@ Core tables:
 - `committees` + `committee_members` — joint committees and their members
 - `workforce_hours` — monthly hours by company / local union
 - `wage_packages` + `wage_components` — wage/benefit packages with line items
-- `documents` — chapter-wide document storage (paired with a Supabase Storage bucket — not yet created)
-- `deadlines` — chapter calendar of deadlines and milestones
-- `activity_log` — append-only audit trail
-- `user_settings` — per-user preferences and chapter membership
+- `documents` — chapter-wide document storage (paired with the private `documents` Storage bucket)
+- `negotiation_documents` — files attached to a negotiation cycle (paired with the `negotiation-documents` bucket)
+- `deadlines` — chapter calendar of deadlines and milestones (no UI yet — planned)
+- `activity_log` — append-only audit trail (no UI yet — planned)
+- `pending_invites` — chapter/role staged for invited users (consumed by the `invite-user` Edge Function)
+- `user_settings` — per-user profile, role, and chapter membership
 
-All tables use `uuid` primary keys. Multi-tenancy is by `chapter_id`. RLS
-policies are currently `allow authenticated full access` — that means the app
-is effectively single-tenant for now and should be tightened before letting
-multiple chapters share the same Supabase project.
+All tables use `uuid` primary keys. Multi-tenancy is by `chapter_id`,
+enforced server-side by RLS: every chapter-scoped table checks
+`chapter_id = get_user_chapter_id() OR is_admin()`, and the three Storage
+buckets carry equivalent per-bucket policies. The client additionally scopes
+reads through `applyChapterFilter()` as defense in depth.
 
 ## Deployment (Vercel)
 
@@ -113,30 +120,45 @@ their respective UIs, and configure SPA fallback to `index.html`.
 ```
 src/
 ├── App.tsx               # Top-level layout, sidebar, page switching, auth gate
-├── main.tsx              # Entry point — mounts ToastProvider + App
-├── index.css             # Global resets and focus-visible outline
+├── main.tsx              # Entry point — mounts ToastProvider + UserSettingsProvider + App
+├── index.css             # Global resets, focus outline, responsive utility classes
 ├── lib/
 │   ├── supabase.ts       # Supabase client (reads VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY)
 │   ├── types.ts          # TypeScript types mirroring the Supabase schema
-│   ├── ui.ts             # Shared style tokens (colors, buttons, inputs, formatDate)
-│   ├── useChapter.ts     # Hook that resolves the current user's chapter
-│   ├── toast.tsx         # ToastProvider + useToast() + describeError() helper
+│   ├── ui.ts             # Shared style tokens + formatDate/formatMoney/localUnionLabel
+│   ├── useUserSettings.tsx # Current user, role, chapter scoping, applyChapterFilter()
+│   ├── toast.tsx         # ToastProvider + useToast()
+│   ├── errors.ts         # describeError() — human-readable Supabase errors
+│   ├── storage.ts        # Bucket config, upload validation, signed download URLs
+│   ├── negotiations.ts   # Shared negotiation queries (classifications, cycle stats)
+│   ├── negotiationReport.ts # Print-ready negotiation report builder (Member/Committee editions)
+│   ├── serviceCharge.ts  # NECA service-charge calculation (pure math)
+│   ├── hoursImport.ts    # Excel/CSV workforce-hours import parsing
+│   ├── comparison-utils.ts # Formatters for the Comparison Sheet
+│   ├── usStates.ts       # US state list for address forms
 │   └── ConfirmDialog.tsx # Reusable confirmation modal for destructive actions
+├── components/
+│   ├── CloseOutModal.tsx      # Negotiation Close Out wizard (settle + lock)
+│   ├── ExportReportModal.tsx  # Report edition/section picker + file downloads
+│   └── comparison/            # Comparison Sheet (shell, economic + language grids)
 └── pages/
-    ├── Login.tsx              # Email/password sign-in, sign-up, forgot password
-    ├── SetNewPassword.tsx     # Password recovery completion screen
+    ├── Login.tsx              # Email/password sign-in + forgot password (invite-only; no sign-up)
+    ├── SetNewPassword.tsx     # Invite acceptance + password recovery completion
+    ├── ProfileCompletion.tsx  # One-time post-invite profile form
     ├── Dashboard.tsx          # Command Center home page
-    ├── Negotiations.tsx       # Negotiation list + create + delete
-    ├── NegotiationDetail.tsx  # Per-cycle Overview / Session Log / Proposals
+    ├── Negotiations.tsx       # Negotiation list + create/delete + status filters
+    ├── NegotiationDetail.tsx  # Overview / Dashboard / Session Log / Proposals / Comparison Sheet / Documents
     ├── Grievances.tsx         # Grievance lifecycle + attachments
     ├── LocalUnions.tsx        # Local unions, wage packages, wage components
     ├── Members.tsx            # Member Hub tab router
     ├── MembersDirectory.tsx   # Employer directory
     ├── MembersCommittees.tsx  # Joint committees and their members
-    ├── MembersHours.tsx       # Workforce hours by month
-    ├── MembersServiceCharge.tsx # Per-company hours summary
+    ├── MembersHours.tsx       # Workforce hours by month + Excel/CSV import
+    ├── ImportHoursModal.tsx   # Hours/payroll import wizard
+    ├── MembersServiceCharge.tsx # NECA service-charge calculator
     ├── Documents.tsx          # Document vault (Supabase Storage)
-    └── Settings.tsx           # Chapter name + password change
+    ├── AdminUsers.tsx         # Admin: chapters, invites, user management
+    └── Settings.tsx           # Profile, account info, password change
 ```
 
 ### Code conventions
@@ -152,15 +174,15 @@ src/
 ## Roles and multi-chapter isolation
 
 Every authenticated user has a `user_settings` row (created automatically by a
-database trigger on sign-up) with a `role` and a `chapter_id`. Three roles:
+database trigger) with a `role` and a `chapter_id`. Two roles:
 
 - **admin** — sees all chapters and all rows. Database RLS bypasses
   chapter-scoping via an `is_admin()` helper. Admins also see a "Viewing as"
   chapter switcher in the sidebar to scope the UI to a single chapter at a
   time (purely a client-side filter; it does not change their own
-  `user_settings.chapter_id`).
-- **manager** / **member** — scoped to their assigned chapter by RLS. The two
-  roles render the same UI today; future capability differences are planned.
+  `user_settings.chapter_id`). Because admin is global, only the vendor/owner
+  should hold it — customer staff get **user**.
+- **user** — scoped to their assigned chapter by RLS.
 
 New non-admin users land on a "pending chapter assignment" screen until an
 admin assigns them a chapter in **User Management**. There is no self-service
@@ -172,23 +194,21 @@ their `user_settings` row (editable under **Settings → Profile**).
 
 ## Status & known gaps
 
-- File storage uses two private Supabase Storage buckets, `documents` and
-  `grievance-documents`. Both cap files at 50 MB and accept PDFs, Office
-  docs, common images, CSV, and plain text. Document and grievance
-  attachment uploads use short-lived signed URLs for download.
-- The schema lives only in the Supabase dashboard — committing
-  `supabase/migrations/` so the schema can be reproduced from scratch is on
-  the roadmap.
+- File storage uses three private Supabase Storage buckets — `documents`,
+  `grievance-documents`, and `negotiation-documents` — all chapter-scoped by
+  RLS, capped at 50 MB per file, and downloaded via short-lived signed URLs.
+- The `deadlines` and `activity_log` tables exist but have no UI yet.
+- No automated tests and no CI pipeline yet (lint and build are run manually
+  and are currently clean — keep them that way).
 
 ## Roadmap
 
-Tier 1 (in flight): commit schema migrations to git.
-Tier 2: CSV/Excel export, audit log surfacing, search,
-sort/filter/pagination on tables.
-Tier 3: multi-user invites, branding/white-label, email notifications for
-deadlines.
-
-See `AUDIT.md` at the repo root for the full audit and prioritised action plan.
+- CI (GitHub Actions: typecheck, lint, build on every push)
+- Custom SMTP for auth emails, Supabase Pro plan + backup/restore runbook,
+  Terms of Service + Privacy Policy (pre-customer launch items)
+- Table sorting/pagination at scale; global search
+- Audit log surfacing (`activity_log`), deadline reminders (`deadlines`)
+- Billing + self-serve signup/provisioning (when demand justifies)
 
 ## License
 

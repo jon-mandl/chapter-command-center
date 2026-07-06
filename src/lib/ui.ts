@@ -120,21 +120,6 @@ export const tdStyle: React.CSSProperties = {
   borderBottom: '1px solid #F1F5F9'
 }
 
-// Page header style — use for every page's top-level <h1>
-export const pageTitle: React.CSSProperties = {
-  fontSize: '26px',
-  fontWeight: 700,
-  color: '#0F172A',
-  margin: '0 0 4px'
-}
-
-// Subtitle below a page title
-export const pageSubtitle: React.CSSProperties = {
-  fontSize: '14px',
-  color: '#64748B',
-  margin: '0 0 28px'
-}
-
 // Status pill colors for negotiation cycles — used by the Negotiations list,
 // the NegotiationDetail header, and the Comparison Sheet.
 export const NEG_STATUS_COLORS: Record<NegotiationStatus, { bg: string; color: string; border: string }> = {
