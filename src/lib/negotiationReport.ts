@@ -198,7 +198,6 @@ function buildHtml(args: {
   // ── Cover ──────────────────────────────────────────────────────────────────
   const metaRows: [string, string][] = [
     ['Local Union', esc(localUnionLabel(union))],
-    ['Classification', esc(cycle.classification)],
     ['Status', esc(cycle.status)]
   ]
   if (cycle.settled_date) metaRows.push(['Settled', esc(formatDate(cycle.settled_date))])

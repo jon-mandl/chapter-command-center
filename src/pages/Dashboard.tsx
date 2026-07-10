@@ -3,28 +3,15 @@ import { supabase, HOURS_QUERY_MAX } from '../lib/supabase'
 import { useUserSettings } from '../lib/useUserSettings'
 import { useToast } from '../lib/toast'
 import { describeError } from '../lib/errors'
-import { formatDate } from '../lib/ui'
+import { formatDate, formatMoney, GRIEVANCE_STAGE_COLORS, GRIEVANCE_ACTIVE_STAGES } from '../lib/ui'
+import { aggregateMonthly, computeCompanyCharge, SHORT_MONTHS } from '../lib/serviceCharge'
+import HoursChart from '../components/HoursChart'
 import type { NegotiationCycle, Grievance, WorkforceHours, MemberCompany } from '../lib/types'
 
 type Page = 'dashboard' | 'negotiations' | 'grievances' | 'local-unions' | 'members' | 'documents' | 'settings'
 
 interface DashboardProps {
   onNavigate: (page: Page) => void
-}
-
-const CYCLE_STATUS_COLORS: Record<NegotiationCycle['status'], { bg: string; color: string; border: string }> = {
-  Active:   { bg: '#f0fdf4', color: '#059669', border: '#bbf7d0' },
-  Settled:  { bg: '#EEF2FF', color: '#4F46E5', border: '#C7D2FE' },
-  Archived: { bg: '#F8FAFC', color: '#64748B', border: '#E2E8F0' }
-}
-
-const GRIEVANCE_STAGE_COLORS: Record<Grievance['stage'], { bg: string; color: string }> = {
-  Filed:       { bg: '#fef2f2', color: '#dc2626' },
-  LMC:         { bg: '#fff7ed', color: '#ea580c' },
-  CIR:         { bg: '#fefce8', color: '#ca8a04' },
-  Arbitration: { bg: '#fefce8', color: '#a16207' },
-  Closed:      { bg: '#F8FAFC', color: '#64748B' },
-  Withdrawn:   { bg: '#F8FAFC', color: '#64748B' }
 }
 
 export default function Dashboard({ onNavigate }: DashboardProps): React.JSX.Element {
@@ -35,6 +22,7 @@ export default function Dashboard({ onNavigate }: DashboardProps): React.JSX.Ele
   const [companies, setCompanies] = useState<MemberCompany[]>([])
   const [hours, setHours] = useState<WorkforceHours[]>([])
   const [loading, setLoading] = useState(true)
+  const [hoursYear, setHoursYear] = useState<number>(new Date().getFullYear())
 
   useEffect(() => {
     let cancelled = false
@@ -67,10 +55,11 @@ export default function Dashboard({ onNavigate }: DashboardProps): React.JSX.Ele
   }
 
   const activeCycles = cycles.filter((c) => c.status === 'Active')
-  const recentCycles = cycles.slice(0, 4)
   const activeGrievances = grievances.filter((g) => g.stage !== 'Closed' && g.stage !== 'Withdrawn')
 
   const today = new Date()
+  const currentYear = today.getFullYear()
+  const currentMonth = today.getMonth() + 1
   const soon = new Date(); soon.setDate(today.getDate() + 180)
   const expiringContracts = activeCycles.filter((c) => {
     if (!c.cba_expiration_date) return false
@@ -78,7 +67,43 @@ export default function Dashboard({ onNavigate }: DashboardProps): React.JSX.Ele
     return d >= today && d <= soon
   }).sort((a, b) => (a.cba_expiration_date ?? '') < (b.cba_expiration_date ?? '') ? -1 : 1)
 
-  const totalHours = hours.reduce((sum, h) => sum + Number(h.total_hours ?? 0), 0)
+  // Hours scoped to the current calendar year (matches the stat card label)
+  const totalHours = hours.reduce((sum, h) =>
+    parseInt(h.report_month.slice(0, 4), 10) === currentYear ? sum + Number(h.total_hours ?? 0) : sum, 0)
+
+  // Years available in the chart's year picker (always includes this year)
+  const yearSet = new Set<number>([currentYear])
+  hours.forEach((h) => {
+    const y = parseInt(h.report_month.slice(0, 4), 10)
+    if (Number.isFinite(y)) yearSet.add(y)
+  })
+  const availableYears = Array.from(yearSet).sort((a, b) => b - a)
+
+  // Monthly totals for the selected chart year
+  const monthlyTotals: number[] = Array(12).fill(0)
+  const monthsWithData: boolean[] = Array(12).fill(false)
+  hours.forEach((h) => {
+    if (parseInt(h.report_month.slice(0, 4), 10) !== hoursYear) return
+    const m = parseInt(h.report_month.slice(5, 7), 10)
+    if (m >= 1 && m <= 12) {
+      monthlyTotals[m - 1] += Number(h.total_hours ?? 0)
+      monthsWithData[m - 1] = true
+    }
+  })
+
+  // Active grievances per stage, for the color breakdown
+  const stageCounts = GRIEVANCE_ACTIVE_STAGES.map((stage) => ({
+    stage,
+    count: activeGrievances.filter((g) => g.stage === stage).length
+  }))
+  const maxStageCount = Math.max(1, ...stageCounts.map((s) => s.count))
+
+  // Service charge year-to-date estimate — same rules as the Service Charge
+  // tab with its defaults (Active companies, January through this month)
+  const hoursByCompany = aggregateMonthly(hours, currentYear)
+  const activeCompanies = companies.filter((c) => c.status === 'Active')
+  const serviceChargeYtd = activeCompanies.reduce((sum, c) =>
+    sum + computeCompanyCharge(hoursByCompany.get(c.id) ?? [], c.discount_tier, 1, currentMonth).netDue, 0)
 
   return (
     <div className="page-content">
@@ -91,7 +116,7 @@ export default function Dashboard({ onNavigate }: DashboardProps): React.JSX.Ele
         <StatCard label="Active Negotiations" value={activeCycles.length} sub={`${cycles.length - activeCycles.length} settled or archived`} onClick={() => onNavigate('negotiations')} />
         <StatCard label="Active Grievances" value={activeGrievances.length} sub={`${grievances.length - activeGrievances.length} closed or withdrawn`} onClick={() => onNavigate('grievances')} />
         <StatCard label="Member Companies" value={companies.length} sub={`${companies.filter((c) => c.status === 'Active').length} active`} onClick={() => onNavigate('members')} />
-        <StatCard label="Hours This Year" value={Math.round(totalHours).toLocaleString()} sub="across all months" onClick={() => onNavigate('members')} />
+        <StatCard label="Hours This Year" value={Math.round(totalHours).toLocaleString()} sub={`${currentYear} year to date`} onClick={() => onNavigate('members')} />
       </div>
 
       {expiringContracts.length > 0 && (
@@ -109,58 +134,62 @@ export default function Dashboard({ onNavigate }: DashboardProps): React.JSX.Ele
       )}
 
       <div className="grid-2col">
-        <div style={{ background: '#fff', border: '1px solid #E2E8F0', borderRadius: '10px', overflow: 'hidden' }}>
-          <div style={{ padding: '14px 18px', borderBottom: '1px solid #E2E8F0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: '14px', fontWeight: 600, color: '#0F172A' }}>Recent Negotiations</span>
-            <button onClick={() => onNavigate('negotiations')} style={{ fontSize: '12px', color: '#1E3A8A', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>View all</button>
+        {/* Member hours trend */}
+        <div style={{ background: '#fff', border: '1px solid #E2E8F0', borderRadius: '10px', padding: '14px 18px 10px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
+            <span style={{ fontSize: '14px', fontWeight: 600, color: '#0F172A' }}>Member Hours</span>
+            <select
+              value={hoursYear}
+              onChange={(e) => setHoursYear(parseInt(e.target.value, 10))}
+              aria-label="Chart year"
+              style={{ fontSize: '12px', padding: '4px 8px', border: '1px solid #CBD5E1', borderRadius: '6px', color: '#0F172A', background: '#fff' }}
+            >
+              {availableYears.map((y) => <option key={y} value={y}>{y}</option>)}
+            </select>
           </div>
-          {recentCycles.length === 0 ? (
-            <div style={{ padding: '24px 18px', color: '#94A3B8', fontSize: '13px' }}>
-              No negotiations yet.{' '}
-              <button onClick={() => onNavigate('negotiations')} style={{ background: 'none', border: 'none', color: '#1E3A8A', cursor: 'pointer', padding: 0, fontSize: '13px' }}>Add one</button>
-            </div>
-          ) : recentCycles.map((c, i) => {
-            const sc = CYCLE_STATUS_COLORS[c.status]
-            return (
-              <div key={c.id} style={{ padding: '12px 18px', borderBottom: i < recentCycles.length - 1 ? '1px solid #F1F5F9' : 'none', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px' }}>
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ fontSize: '13px', fontWeight: 600, color: '#0F172A', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.name}</div>
-                  <div style={{ fontSize: '11px', color: '#94A3B8', marginTop: '2px' }}>{c.classification}</div>
-                </div>
-                <span style={{ fontSize: '11px', fontWeight: 600, padding: '2px 8px', borderRadius: '20px', flexShrink: 0, background: sc.bg, color: sc.color, border: `1px solid ${sc.border}` }}>
-                  {c.status}
-                </span>
-              </div>
-            )
-          })}
+          <HoursChart monthlyTotals={monthlyTotals} monthsWithData={monthsWithData} year={hoursYear} />
         </div>
 
-        <div style={{ background: '#fff', border: '1px solid #E2E8F0', borderRadius: '10px', overflow: 'hidden' }}>
-          <div style={{ padding: '14px 18px', borderBottom: '1px solid #E2E8F0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: '14px', fontWeight: 600, color: '#0F172A' }}>Active Grievances</span>
-            <button onClick={() => onNavigate('grievances')} style={{ fontSize: '12px', color: '#1E3A8A', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>View all</button>
-          </div>
-          {activeGrievances.length === 0 ? (
-            <div style={{ padding: '24px 18px', color: '#94A3B8', fontSize: '13px' }}>No active grievances.</div>
-          ) : activeGrievances.slice(0, 5).map((g, i) => {
-            const sc = GRIEVANCE_STAGE_COLORS[g.stage]
-            return (
-              <div key={g.id} style={{ padding: '11px 18px', borderBottom: i < Math.min(activeGrievances.length, 5) - 1 ? '1px solid #F1F5F9' : 'none', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ fontSize: '13px', fontWeight: 500, color: '#0F172A' }}>
-                    {g.grievance_number ? `#${g.grievance_number} — ` : ''}{g.title}
-                  </div>
-                  {g.employer_name && <div style={{ fontSize: '11px', color: '#94A3B8', marginTop: '2px' }}>{g.employer_name}</div>}
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexShrink: 0 }}>
-                  <span style={{ fontSize: '11px', color: '#94A3B8' }}>{formatDate(g.filed_date)}</span>
-                  <span style={{ fontSize: '11px', fontWeight: 600, padding: '2px 8px', borderRadius: '20px', background: sc.bg, color: sc.color }}>
-                    {g.stage}
+        {/* Right column: grievance breakdown + service charge */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+          <div style={{ background: '#fff', border: '1px solid #E2E8F0', borderRadius: '10px', padding: '14px 18px', flex: 1 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+              <span style={{ fontSize: '14px', fontWeight: 600, color: '#0F172A' }}>Active Grievances by Stage</span>
+              <button onClick={() => onNavigate('grievances')} style={{ fontSize: '12px', color: '#1E3A8A', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>View all</button>
+            </div>
+            {activeGrievances.length === 0 ? (
+              <div style={{ padding: '16px 0', color: '#94A3B8', fontSize: '13px' }}>No active grievances.</div>
+            ) : stageCounts.map(({ stage, count }) => {
+              const colors = GRIEVANCE_STAGE_COLORS[stage]
+              return (
+                <button
+                  key={stage}
+                  onClick={() => onNavigate('grievances')}
+                  style={{ display: 'flex', alignItems: 'center', gap: '10px', width: '100%', background: 'none', border: 'none', padding: '8px 0', cursor: 'pointer' }}
+                >
+                  <span style={{ display: 'block', width: '10px', height: '10px', borderRadius: '2px', background: colors.color, flexShrink: 0 }} aria-hidden="true" />
+                  <span style={{ fontSize: '13px', color: '#475569', width: '86px', textAlign: 'left', flexShrink: 0 }}>{stage}</span>
+                  <span style={{ display: 'block', flex: 1, height: '8px', background: '#F1F5F9', borderRadius: '4px', overflow: 'hidden' }}>
+                    <span style={{ display: 'block', height: '100%', width: count > 0 ? `${Math.max(3, (count / maxStageCount) * 100)}%` : '0%', background: colors.color, borderRadius: '4px' }} />
                   </span>
-                </div>
-              </div>
-            )
-          })}
+                  <span style={{ fontSize: '13px', fontWeight: 600, color: '#0F172A', width: '28px', textAlign: 'right', flexShrink: 0 }}>{count}</span>
+                </button>
+              )
+            })}
+          </div>
+
+          <button
+            onClick={() => onNavigate('members')}
+            style={{ background: '#fff', border: '1px solid #E2E8F0', borderRadius: '10px', padding: '16px 18px', textAlign: 'left', cursor: 'pointer', transition: 'box-shadow 0.15s' }}
+            onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.boxShadow = '0 2px 8px rgba(0,0,0,0.08)' }}
+            onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.boxShadow = 'none' }}
+          >
+            <div style={{ fontSize: '12px', color: '#64748B', fontWeight: 500, marginBottom: '8px' }}>Service Charge (YTD estimate)</div>
+            <div style={{ fontSize: '24px', fontWeight: 700, color: '#0F172A', lineHeight: 1 }}>{formatMoney(serviceChargeYtd)}</div>
+            <div style={{ fontSize: '11px', color: '#94A3B8', marginTop: '6px' }}>
+              Estimated Jan–{SHORT_MONTHS[currentMonth - 1]} {currentYear} · {activeCompanies.length} active compan{activeCompanies.length === 1 ? 'y' : 'ies'}
+            </div>
+          </button>
         </div>
       </div>
     </div>

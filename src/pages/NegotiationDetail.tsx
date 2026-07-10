@@ -5,7 +5,7 @@ import { useToast } from '../lib/toast'
 import { describeError } from '../lib/errors'
 import ConfirmDialog from '../lib/ConfirmDialog'
 import { inputStyle, btnPrimary, btnSecondary, btnDanger, card, labelStyle, errorBox, formatDate, NEG_STATUS_COLORS, localUnionLabel } from '../lib/ui'
-import { loadClassificationsForUnion, loadCycleStats } from '../lib/negotiations'
+import { loadCycleStats } from '../lib/negotiations'
 import type { CycleProposalCounts, CycleSessionSummary } from '../lib/negotiations'
 import ComparisonSheet from '../components/comparison/ComparisonSheet'
 import CloseOutModal from '../components/CloseOutModal'
@@ -34,7 +34,7 @@ import type {
   NegotiationDocumentRole
 } from '../lib/types'
 
-type Tab = 'overview' | 'sessions' | 'proposals' | 'comparison' | 'dashboard' | 'documents'
+type Tab = 'dashboard' | 'sessions' | 'proposals' | 'comparison' | 'documents'
 
 const PROPOSAL_STATUSES: ProposalStatus[] = ['Open', 'TA', 'Withdrawn', 'Rejected']
 
@@ -82,7 +82,7 @@ export default function NegotiationDetail({ negotiationId, onBack }: {
   const [unions, setUnions] = useState<LocalUnion[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
-  const [activeTab, setActiveTab] = useState<Tab>('overview')
+  const [activeTab, setActiveTab] = useState<Tab>('dashboard')
 
   const [showCloseOut, setShowCloseOut] = useState(false)
   const [confirmArchive, setConfirmArchive] = useState(false)
@@ -157,7 +157,6 @@ export default function NegotiationDetail({ negotiationId, onBack }: {
   const sc = NEG_STATUS_COLORS[cycle.status]
 
   const TABS: { id: Tab; label: string }[] = [
-    { id: 'overview',    label: 'Overview' },
     { id: 'dashboard',   label: 'Dashboard' },
     { id: 'sessions',    label: 'Session Log' },
     { id: 'proposals',   label: 'Proposals' },
@@ -244,8 +243,7 @@ export default function NegotiationDetail({ negotiationId, onBack }: {
       </div>
 
       <div style={{ flex: 1, overflowY: 'auto', background: '#F8FAFC' }}>
-        {activeTab === 'overview'   && <OverviewTab cycle={cycle} unions={unions} isLocked={isLocked} onUpdate={setCycle} toastError={toast.error} toastSuccess={toast.success} onTabChange={setActiveTab} />}
-        {activeTab === 'dashboard'  && <DashboardTab cycle={cycle} onTabChange={setActiveTab} />}
+        {activeTab === 'dashboard'  && <DashboardTab cycle={cycle} unions={unions} isLocked={isLocked} onUpdate={setCycle} onTabChange={setActiveTab} />}
         {activeTab === 'sessions'   && <SessionsTab cycleId={cycle.id} isLocked={isLocked} />}
         {activeTab === 'proposals'  && <ProposalsTab cycleId={cycle.id} isLocked={isLocked} />}
         {activeTab === 'comparison' && <ComparisonSheet cycle={cycle} union={unions.find((u) => u.id === cycle.local_union_id) ?? null} />}
@@ -318,14 +316,28 @@ function StatCard({ label, value, sub, accent }: { label: string; value: string 
   )
 }
 
-function DashboardTab({ cycle, onTabChange }: {
+function DashboardTab({ cycle, unions, isLocked, onUpdate, onTabChange }: {
   cycle: NegotiationCycle
+  unions: LocalUnion[]
+  isLocked: boolean
+  onUpdate: (n: NegotiationCycle) => void
   onTabChange: (t: Tab) => void
 }): React.JSX.Element {
+  const toast = useToast()
   const [proposals, setProposals] = useState<CycleProposalCounts | null>(null)
   const [sessions, setSessions] = useState<CycleSessionSummary | null>(null)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
+
+  // Edit Details (folded in from the former Overview tab)
+  const [editing, setEditing] = useState(false)
+  const [form, setForm] = useState({
+    name: '', local_union_id: '', neca_chapter_division: '',
+    cba_expiration_date: '', proposed_effective_date: '',
+    unit_size: '', annual_hours: '', notes: ''
+  })
+  const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState('')
 
   useEffect(() => {
     let cancelled = false
@@ -343,6 +355,52 @@ function DashboardTab({ cycle, onTabChange }: {
 
     return () => { cancelled = true }
   }, [cycle.id])
+
+  function startEdit(): void {
+    setForm({
+      name: cycle.name,
+      local_union_id: cycle.local_union_id,
+      neca_chapter_division: cycle.neca_chapter_division ?? '',
+      cba_expiration_date: cycle.cba_expiration_date ?? '',
+      proposed_effective_date: cycle.proposed_effective_date ?? '',
+      unit_size: cycle.unit_size?.toString() ?? '',
+      annual_hours: cycle.annual_hours?.toString() ?? '',
+      notes: cycle.notes ?? ''
+    })
+    setSaveError('')
+    setEditing(true)
+  }
+
+  async function handleSave(): Promise<void> {
+    setSaveError('')
+    if (!form.name.trim()) { setSaveError('Name is required.'); return }
+    setSaving(true)
+    const { data, error } = await supabase
+      .from('negotiation_cycles')
+      .update({
+        name: form.name.trim(),
+        local_union_id: form.local_union_id,
+        neca_chapter_division: form.neca_chapter_division.trim() || null,
+        cba_expiration_date: form.cba_expiration_date || null,
+        proposed_effective_date: form.proposed_effective_date || null,
+        unit_size: form.unit_size ? parseInt(form.unit_size, 10) : null,
+        annual_hours: form.annual_hours ? parseInt(form.annual_hours, 10) : null,
+        notes: form.notes.trim() || null
+      })
+      .eq('id', cycle.id)
+      .select()
+      .single()
+    setSaving(false)
+    if (error || !data) {
+      const msg = describeError(error, 'Could not save.')
+      setSaveError(msg)
+      toast.error(msg)
+      return
+    }
+    onUpdate(data as NegotiationCycle)
+    setEditing(false)
+    toast.success('Negotiation updated.')
+  }
 
   if (loading) return <div style={{ padding: '32px', fontSize: '13px', color: '#64748B' }}>Loading…</div>
   if (loadError) return <div style={{ padding: '32px' }}><div style={errorBox}>{loadError}</div></div>
@@ -437,192 +495,10 @@ function DashboardTab({ cycle, onTabChange }: {
         </div>
       </div>
 
-      {/* Key dates */}
-      <div style={{ background: '#fff', border: '1px solid #E2E8F0', borderRadius: '8px', padding: '20px 24px', marginBottom: '16px' }}>
-        <div style={{ fontSize: '13px', fontWeight: 700, color: '#0F172A', marginBottom: '14px' }}>Key Dates</div>
-        <div className="grid-3col">
-          {[
-            { label: 'CBA Expiration', value: formatDate(cycle.cba_expiration_date) },
-            { label: 'Proposed Effective', value: formatDate(cycle.proposed_effective_date) },
-            { label: 'Bargaining Unit Size', value: cycle.unit_size ? cycle.unit_size.toLocaleString() + ' members' : '—' },
-          ].map(({ label, value }) => (
-            <div key={label}>
-              <div style={{ fontSize: '11px', fontWeight: 600, color: '#64748B', textTransform: 'uppercase' as const, letterSpacing: '0.06em', marginBottom: '4px' }}>{label}</div>
-              <div style={{ fontSize: '14px', fontWeight: 600, color: value !== '—' ? '#0F172A' : '#CBD5E1' }}>{value}</div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Quick-nav shortcuts */}
-      <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-        {([
-          { label: 'View Proposals', tab: 'proposals' as Tab },
-          { label: 'View Sessions', tab: 'sessions' as Tab },
-          { label: 'Comparison Sheet', tab: 'comparison' as Tab },
-        ]).map(({ label, tab }) => (
-          <button key={tab} onClick={() => onTabChange(tab)} style={{ padding: '8px 16px', fontSize: '13px', fontWeight: 500, background: '#fff', color: '#1E3A8A', border: '1px solid #CBD5E1', borderRadius: '6px', cursor: 'pointer' }}>
-            {label} →
-          </button>
-        ))}
-      </div>
-
-      {/* Resolved tally note */}
-      {resolvedTotal > 0 && (
-        <div style={{ marginTop: '16px', fontSize: '12px', color: '#94A3B8', lineHeight: 1.6 }}>
-          {resolvedTotal} proposal{resolvedTotal !== 1 ? 's' : ''} resolved (TA, Withdrawn, or Rejected) and no longer active.
-        </div>
-      )}
-    </div>
-  )
-}
-
-// ─── Overview Tab ─────────────────────────────────────────────────────────────
-
-function EyebrowLabel({ children }: { children: React.ReactNode }): React.JSX.Element {
-  return <div style={{ fontSize: '11px', fontWeight: 700, color: '#64748B', textTransform: 'uppercase' as const, letterSpacing: '0.06em', marginBottom: '4px' }}>{children}</div>
-}
-
-function MetaField({ label, value, onClick }: { label: string; value: string | null; onClick?: () => void }): React.JSX.Element {
-  return (
-    <div>
-      <EyebrowLabel>{label}</EyebrowLabel>
-      {onClick ? (
-        <button
-          onClick={onClick}
-          style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontSize: '14px', fontWeight: 600, color: '#1E3A8A', textDecoration: 'underline', textUnderlineOffset: '2px' }}
-        >
-          {value || '—'}
-        </button>
-      ) : (
-        <div style={{ fontSize: '14px', fontWeight: 600, color: value ? '#0F172A' : '#CBD5E1' }}>{value || '—'}</div>
-      )}
-    </div>
-  )
-}
-
-function OverviewTab({ cycle, unions, isLocked, onUpdate, toastError, toastSuccess, onTabChange }: {
-  cycle: NegotiationCycle
-  unions: LocalUnion[]
-  isLocked: boolean
-  onUpdate: (n: NegotiationCycle) => void
-  toastError: (m: string) => void
-  toastSuccess: (m: string) => void
-  onTabChange: (t: Tab) => void
-}): React.JSX.Element {
-  const [editing, setEditing] = useState(false)
-  const [form, setForm] = useState({
-    name: cycle.name,
-    local_union_id: cycle.local_union_id,
-    classification: cycle.classification,
-    neca_chapter_division: cycle.neca_chapter_division ?? '',
-    cba_expiration_date: cycle.cba_expiration_date ?? '',
-    proposed_effective_date: cycle.proposed_effective_date ?? '',
-    unit_size: cycle.unit_size?.toString() ?? '',
-    annual_hours: cycle.annual_hours?.toString() ?? '',
-    notes: cycle.notes ?? ''
-  })
-  const [classifications, setClassifications] = useState<string[]>([])
-  const [saving, setSaving] = useState(false)
-  const [saveError, setSaveError] = useState('')
-
-  // Derived counts
-  const [proposalCount, setProposalCount] = useState<{ total: number; open: number; agreed: number; tabled: number } | null>(null)
-  const [sessionCount, setSessionCount] = useState<{ total: number; lastDate: string | null } | null>(null)
-
-  useEffect(() => {
-    let cancelled = false
-    void loadCycleStats(cycle.id).then(({ stats }) => {
-      if (cancelled || !stats) return
-      setProposalCount({
-        total: stats.proposals.total,
-        open: stats.proposals.open,
-        agreed: stats.proposals.ta,
-        tabled: stats.proposals.withdrawn + stats.proposals.rejected
-      })
-      setSessionCount({ total: stats.sessions.total, lastDate: stats.sessions.lastDate })
-    })
-    return () => { cancelled = true }
-  }, [cycle.id])
-
-  async function handleEditOpen(): Promise<void> {
-    setEditing(true)
-    const { classifications: loaded, error } = await loadClassificationsForUnion(cycle.local_union_id)
-    if (error) { toastError(error); return }
-    setClassifications(loaded)
-  }
-
-  async function handleEditUnionChange(localUnionId: string): Promise<void> {
-    setForm((prev) => ({ ...prev, local_union_id: localUnionId, classification: '' }))
-    const { classifications: loaded, error } = await loadClassificationsForUnion(localUnionId)
-    if (error) { toastError(error); return }
-    setClassifications(loaded)
-    if (loaded.length > 0) setForm((prev) => ({ ...prev, classification: loaded[0] }))
-  }
-
-  async function handleSave(): Promise<void> {
-    setSaveError('')
-    if (!form.name.trim()) { setSaveError('Name is required.'); return }
-    if (!form.classification.trim()) { setSaveError('Classification is required.'); return }
-    setSaving(true)
-    const { data, error } = await supabase
-      .from('negotiation_cycles')
-      .update({
-        name: form.name.trim(),
-        local_union_id: form.local_union_id,
-        classification: form.classification.trim(),
-        neca_chapter_division: form.neca_chapter_division.trim() || null,
-        cba_expiration_date: form.cba_expiration_date || null,
-        proposed_effective_date: form.proposed_effective_date || null,
-        unit_size: form.unit_size ? parseInt(form.unit_size, 10) : null,
-        annual_hours: form.annual_hours ? parseInt(form.annual_hours, 10) : null,
-        notes: form.notes.trim() || null
-      })
-      .eq('id', cycle.id)
-      .select()
-      .single()
-    setSaving(false)
-    if (error || !data) {
-      const msg = describeError(error, 'Could not save.')
-      setSaveError(msg)
-      toastError(msg)
-      return
-    }
-    onUpdate(data as NegotiationCycle)
-    setEditing(false)
-    toastSuccess('Negotiation updated.')
-  }
-
-  function unionLabel(id: ID): string {
-    return localUnionLabel(unions.find((x) => x.id === id))
-  }
-
-  const proposalSummary = proposalCount
-    ? `${proposalCount.total} item${proposalCount.total !== 1 ? 's' : ''} (${proposalCount.open} open · ${proposalCount.agreed} agreed · ${proposalCount.tabled} tabled)`
-    : null
-
-  const sessionSummary = sessionCount
-    ? `${sessionCount.total} session${sessionCount.total !== 1 ? 's' : ''}${sessionCount.lastDate ? ` · last: ${formatDate(sessionCount.lastDate)}` : ''}`
-    : null
-
-  const metaCard: React.CSSProperties = {
-    background: '#fff',
-    border: '1px solid #E2E8F0',
-    borderRadius: '8px',
-    padding: '24px',
-    marginBottom: '16px'
-  }
-
-  return (
-    <div className="page-content">
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '24px', flexWrap: 'wrap', gap: '12px' }}>
-        <h1 style={{ fontSize: '20px', fontWeight: 700, color: '#0F172A', margin: 0 }}>{cycle.name}</h1>
-        {!editing && !isLocked && <button style={btnSecondary} onClick={() => void handleEditOpen()}>Edit</button>}
-      </div>
-
+      {/* Details — view + edit, folded in from the former Overview tab */}
       {editing ? (
-        <div style={metaCard}>
-          <div style={{ fontSize: '14px', fontWeight: 700, color: '#0F172A', marginBottom: '16px' }}>Edit Negotiation</div>
+        <div style={{ background: '#fff', border: '1px solid #E2E8F0', borderRadius: '8px', padding: '20px 24px', marginBottom: '16px' }}>
+          <div style={{ fontSize: '14px', fontWeight: 700, color: '#0F172A', marginBottom: '16px' }}>Edit Details</div>
           <div className="grid-2col" style={{ marginBottom: '14px' }}>
             <div style={{ gridColumn: '1 / -1' }}>
               <label style={labelStyle}>Name <span style={{ color: '#ef4444' }}>*</span></label>
@@ -630,27 +506,9 @@ function OverviewTab({ cycle, unions, isLocked, onUpdate, toastError, toastSucce
             </div>
             <div>
               <label style={labelStyle}>Local Union</label>
-              <select style={inputStyle} value={form.local_union_id} onChange={(e) => void handleEditUnionChange(e.target.value)}>
+              <select style={inputStyle} value={form.local_union_id} onChange={(e) => setForm({ ...form, local_union_id: e.target.value })}>
                 {unions.map((u) => <option key={u.id} value={u.id}>Local {u.local_number}{u.city ? ` — ${u.city}` : ''}</option>)}
               </select>
-            </div>
-            <div>
-              <label style={labelStyle}>Classification</label>
-              {classifications.length > 0 ? (
-                <select style={inputStyle} value={form.classification} onChange={(e) => setForm({ ...form, classification: e.target.value })}>
-                  {classifications.map((c) => <option key={c} value={c}>{c}</option>)}
-                </select>
-              ) : (
-                <input
-                  style={inputStyle}
-                  value={form.classification}
-                  onChange={(e) => setForm({ ...form, classification: e.target.value })}
-                  placeholder="e.g. Journeyman"
-                />
-              )}
-              {classifications.length > 0 && (
-                <div style={{ fontSize: '11px', color: '#94A3B8', marginTop: '4px' }}>From this local union's wage packages</div>
-              )}
             </div>
             <div>
               <label style={labelStyle}>NECA Chapter / Division</label>
@@ -689,38 +547,78 @@ function OverviewTab({ cycle, unions, isLocked, onUpdate, toastError, toastSucce
             <button style={{ ...btnPrimary, opacity: !form.name.trim() || saving ? 0.5 : 1 }} disabled={!form.name.trim() || saving} onClick={handleSave}>
               {saving ? 'Saving…' : 'Save Changes'}
             </button>
-            <button style={btnSecondary} onClick={() => { setEditing(false); setSaveError(''); setClassifications([]) }}>Cancel</button>
+            <button style={btnSecondary} onClick={() => { setEditing(false); setSaveError('') }}>Cancel</button>
           </div>
         </div>
       ) : (
         <>
-          {/* Row 1: Core identity */}
-          <div style={{ ...metaCard }} className="grid-2col">
-            <MetaField label="Local Union" value={unionLabel(cycle.local_union_id)} />
-            <MetaField label="Classification" value={cycle.classification} />
-            <MetaField label="NECA Chapter / Division" value={cycle.neca_chapter_division} />
-            <MetaField label="CBA Expiration" value={formatDate(cycle.cba_expiration_date)} />
-            <MetaField label="Proposed Effective Date" value={formatDate(cycle.proposed_effective_date)} />
-            {cycle.settled_date && <MetaField label="Settled" value={formatDate(cycle.settled_date)} />}
-            <MetaField
-              label="Proposals"
-              value={proposalSummary}
-              onClick={() => onTabChange('proposals')}
-            />
-            <MetaField
-              label="Sessions"
-              value={sessionSummary}
-              onClick={() => onTabChange('sessions')}
-            />
+          <div style={{ background: '#fff', border: '1px solid #E2E8F0', borderRadius: '8px', padding: '20px 24px', marginBottom: '16px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
+              <span style={{ fontSize: '13px', fontWeight: 700, color: '#0F172A' }}>Details</span>
+              {!isLocked && <button style={{ ...btnSecondary, fontSize: '12px', padding: '5px 12px' }} onClick={startEdit}>Edit Details</button>}
+            </div>
+            <div className="grid-3col" style={{ rowGap: '16px' }}>
+              <MetaField label="Local Union" value={localUnionLabel(unions.find((u) => u.id === cycle.local_union_id))} />
+              <MetaField label="NECA Chapter / Division" value={cycle.neca_chapter_division} />
+              <MetaField label="CBA Expiration" value={cycle.cba_expiration_date ? formatDate(cycle.cba_expiration_date) : null} />
+              <MetaField label="Proposed Effective Date" value={cycle.proposed_effective_date ? formatDate(cycle.proposed_effective_date) : null} />
+              {cycle.settled_date && <MetaField label="Settled" value={formatDate(cycle.settled_date)} />}
+              <MetaField label="Bargaining Unit Size" value={cycle.unit_size ? `${cycle.unit_size.toLocaleString()} members` : null} />
+              <MetaField label="Avg Hours / Member / Year" value={cycle.annual_hours ? cycle.annual_hours.toLocaleString() : null} />
+            </div>
           </div>
 
           {cycle.notes && (
-            <div style={metaCard}>
+            <div style={{ background: '#fff', border: '1px solid #E2E8F0', borderRadius: '8px', padding: '20px 24px', marginBottom: '16px' }}>
               <EyebrowLabel>Notes</EyebrowLabel>
               <div style={{ fontSize: '14px', color: '#475569', whiteSpace: 'pre-wrap', marginTop: '4px' }}>{cycle.notes}</div>
             </div>
           )}
         </>
+      )}
+
+      {/* Quick-nav shortcuts */}
+      <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+        {([
+          { label: 'View Proposals', tab: 'proposals' as Tab },
+          { label: 'View Sessions', tab: 'sessions' as Tab },
+          { label: 'Comparison Sheet', tab: 'comparison' as Tab },
+        ]).map(({ label, tab }) => (
+          <button key={tab} onClick={() => onTabChange(tab)} style={{ padding: '8px 16px', fontSize: '13px', fontWeight: 500, background: '#fff', color: '#1E3A8A', border: '1px solid #CBD5E1', borderRadius: '6px', cursor: 'pointer' }}>
+            {label} →
+          </button>
+        ))}
+      </div>
+
+      {/* Resolved tally note */}
+      {resolvedTotal > 0 && (
+        <div style={{ marginTop: '16px', fontSize: '12px', color: '#94A3B8', lineHeight: 1.6 }}>
+          {resolvedTotal} proposal{resolvedTotal !== 1 ? 's' : ''} resolved (TA, Withdrawn, or Rejected) and no longer active.
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Shared meta display components (used by the Dashboard tab) ──────────────
+
+function EyebrowLabel({ children }: { children: React.ReactNode }): React.JSX.Element {
+  return <div style={{ fontSize: '11px', fontWeight: 700, color: '#64748B', textTransform: 'uppercase' as const, letterSpacing: '0.06em', marginBottom: '4px' }}>{children}</div>
+}
+
+function MetaField({ label, value, onClick }: { label: string; value: string | null; onClick?: () => void }): React.JSX.Element {
+  return (
+    <div>
+      <EyebrowLabel>{label}</EyebrowLabel>
+      {onClick ? (
+        <button
+          onClick={onClick}
+          style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontSize: '14px', fontWeight: 600, color: '#1E3A8A', textDecoration: 'underline', textUnderlineOffset: '2px' }}
+        >
+          {value || '—'}
+        </button>
+      ) : (
+        <div style={{ fontSize: '14px', fontWeight: 600, color: value ? '#0F172A' : '#CBD5E1' }}>{value || '—'}</div>
       )}
     </div>
   )
@@ -1078,7 +976,7 @@ function SessionsTab({ cycleId, isLocked }: { cycleId: ID; isLocked: boolean }):
 
 // ─── Proposals Tab ────────────────────────────────────────────────────────────
 
-type ProposalStep = 'list' | 'choose-type' | 'economic-form' | 'language-form'
+type ProposalStep = 'list' | 'economic-form' | 'language-form'
 
 interface EconFormState {
   title: string
@@ -1144,6 +1042,9 @@ function ProposalsTab({ cycleId, isLocked }: { cycleId: ID; isLocked: boolean })
   // How the union/management value inputs are interpreted: as the full new
   // amount, or as an increase added to the current value.
   const [econEntryMode, setEconEntryMode] = useState<'total' | 'increase'>('total')
+  // Cost impact / rationale / last movement live behind a collapsed
+  // "More options" toggle so the everyday form stays short.
+  const [showMoreOptions, setShowMoreOptions] = useState(false)
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState('')
 
@@ -1180,7 +1081,24 @@ function ProposalsTab({ cycleId, isLocked }: { cycleId: ID; isLocked: boolean })
     setEconForm(defaultEconForm)
     setLangForm(defaultLangForm)
     setEconEntryMode('total')
+    setShowMoreOptions(false)
     setSaveError('')
+  }
+
+  function startCreateEcon(): void {
+    setEditingProposal(null)
+    setEconForm(defaultEconForm)
+    setEconEntryMode('total')
+    setShowMoreOptions(false)
+    setSaveError('')
+    setStep('economic-form')
+  }
+
+  function startCreateLang(): void {
+    setEditingProposal(null)
+    setLangForm(defaultLangForm)
+    setSaveError('')
+    setStep('language-form')
   }
 
   // Live hint under a union/management value input: shows the computed total
@@ -1219,6 +1137,8 @@ function ProposalsTab({ cycleId, isLocked }: { cycleId: ID; isLocked: boolean })
     })
     setEditingProposal(p)
     setEconEntryMode('total')
+    // Auto-expand when the proposal already has data in the optional fields
+    setShowMoreOptions(p.cost_union != null || p.cost_mgmt != null || !!p.rationale || !!p.last_movement)
     setStep('economic-form')
   }
 
@@ -1414,37 +1334,6 @@ function ProposalsTab({ cycleId, isLocked }: { cycleId: ID; isLocked: boolean })
 
   if (loading) return <div style={{ padding: '24px', fontSize: '13px', color: '#64748B' }}>Loading…</div>
 
-  // ── Type chooser ──────────────────────────────────────────────────────────
-  if (step === 'choose-type') {
-    return (
-      <div className="page-content">
-        <div style={{ fontSize: '14px', fontWeight: 700, color: '#0F172A', marginBottom: '20px' }}>What type of proposal?</div>
-        <div className="grid-2col" style={{ marginBottom: '24px' }}>
-          {([
-            { type: 'Economic', title: 'Economic', desc: 'Wages, fringes, contributions, dollar amounts', step: 'economic-form' as ProposalStep },
-            { type: 'Language', title: 'Language', desc: 'Contract clauses, work rules, procedures', step: 'language-form' as ProposalStep },
-          ] as const).map((opt) => (
-            <button
-              key={opt.type}
-              onClick={() => setStep(opt.step)}
-              style={{
-                background: '#fff', border: '1px solid #E2E8F0', borderRadius: '8px',
-                padding: '20px', textAlign: 'left', cursor: 'pointer',
-                transition: 'border-color 0.15s'
-              }}
-              onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.borderColor = '#CBD5E1' }}
-              onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.borderColor = '#E2E8F0' }}
-            >
-              <div style={{ fontSize: '14px', fontWeight: 700, color: '#0F172A', marginBottom: '6px' }}>{opt.title}</div>
-              <div style={{ fontSize: '13px', color: '#64748B', lineHeight: 1.4 }}>{opt.desc}</div>
-            </button>
-          ))}
-        </div>
-        <button style={btnSecondary} onClick={cancelForm}>Cancel</button>
-      </div>
-    )
-  }
-
   // ── Economic form ─────────────────────────────────────────────────────────
   if (step === 'economic-form') {
     const isEdit = editingProposal !== null
@@ -1531,22 +1420,7 @@ function ProposalsTab({ cycleId, isLocked }: { cycleId: ID; isLocked: boolean })
           </div>
 
           <div style={{ borderTop: '1px solid #F1F5F9', paddingTop: '16px', marginBottom: '16px' }}>
-            <div style={{ fontSize: '11px', fontWeight: 700, color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '14px' }}>Cost Impact (optional)</div>
             <div className="grid-2col">
-              <div>
-                <label style={labelStyle}>Union $/hr impact</label>
-                <input style={inputStyle} type="number" step="any" value={econForm.cost_union} onChange={(e) => setEconForm({ ...econForm, cost_union: e.target.value })} placeholder="e.g. 2.50" />
-              </div>
-              <div>
-                <label style={labelStyle}>Management $/hr impact</label>
-                <input style={inputStyle} type="number" step="any" value={econForm.cost_mgmt} onChange={(e) => setEconForm({ ...econForm, cost_mgmt: e.target.value })} placeholder="e.g. 1.25" />
-              </div>
-            </div>
-          </div>
-
-          <div style={{ borderTop: '1px solid #F1F5F9', paddingTop: '16px', marginBottom: '16px' }}>
-            <div style={{ fontSize: '11px', fontWeight: 700, color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '14px' }}>Status and Notes</div>
-            <div className="grid-2col" style={{ marginBottom: '14px' }}>
               <div>
                 <label style={labelStyle}>Status <span style={{ color: '#ef4444' }}>*</span></label>
                 <select style={inputStyle} value={econForm.status} onChange={(e) => setEconForm({ ...econForm, status: e.target.value as ProposalStatus })}>
@@ -1560,14 +1434,42 @@ function ProposalsTab({ cycleId, isLocked }: { cycleId: ID; isLocked: boolean })
                 </label>
               </div>
             </div>
-            <div style={{ marginBottom: '14px' }}>
-              <label style={labelStyle}>Rationale</label>
-              <textarea style={{ ...inputStyle, resize: 'vertical', minHeight: '60px' }} value={econForm.rationale} onChange={(e) => setEconForm({ ...econForm, rationale: e.target.value })} placeholder="Union or management rationale for this position" />
-            </div>
-            <div>
-              <label style={labelStyle}>Last Movement</label>
-              <textarea style={{ ...inputStyle, resize: 'vertical', minHeight: '50px' }} value={econForm.last_movement} onChange={(e) => setEconForm({ ...econForm, last_movement: e.target.value })} placeholder="e.g. Mgmt moved +$0.25/hr at Mar 18 session" />
-            </div>
+          </div>
+
+          <div style={{ borderTop: '1px solid #F1F5F9', paddingTop: '16px', marginBottom: '16px' }}>
+            <button
+              type="button"
+              onClick={() => setShowMoreOptions((v) => !v)}
+              aria-expanded={showMoreOptions}
+              style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'none', border: 'none', cursor: 'pointer', padding: 0, fontSize: '13px', fontWeight: 600, color: '#1E3A8A' }}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ transform: showMoreOptions ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s' }}>
+                <polyline points="9 18 15 12 9 6"/>
+              </svg>
+              More options (cost impact, rationale, last movement)
+            </button>
+            {showMoreOptions && (
+              <div style={{ marginTop: '14px' }}>
+                <div className="grid-2col" style={{ marginBottom: '14px' }}>
+                  <div>
+                    <label style={labelStyle}>Union $/hr impact</label>
+                    <input style={inputStyle} type="number" step="any" value={econForm.cost_union} onChange={(e) => setEconForm({ ...econForm, cost_union: e.target.value })} placeholder="e.g. 2.50" />
+                  </div>
+                  <div>
+                    <label style={labelStyle}>Management $/hr impact</label>
+                    <input style={inputStyle} type="number" step="any" value={econForm.cost_mgmt} onChange={(e) => setEconForm({ ...econForm, cost_mgmt: e.target.value })} placeholder="e.g. 1.25" />
+                  </div>
+                </div>
+                <div style={{ marginBottom: '14px' }}>
+                  <label style={labelStyle}>Rationale</label>
+                  <textarea style={{ ...inputStyle, resize: 'vertical', minHeight: '60px' }} value={econForm.rationale} onChange={(e) => setEconForm({ ...econForm, rationale: e.target.value })} placeholder="Union or management rationale for this position" />
+                </div>
+                <div>
+                  <label style={labelStyle}>Last Movement</label>
+                  <textarea style={{ ...inputStyle, resize: 'vertical', minHeight: '50px' }} value={econForm.last_movement} onChange={(e) => setEconForm({ ...econForm, last_movement: e.target.value })} placeholder="e.g. Mgmt moved +$0.25/hr at Mar 18 session" />
+                </div>
+              </div>
+            )}
           </div>
 
           {saveError && <div style={errorBox}>{saveError}</div>}
@@ -1735,7 +1637,10 @@ function ProposalsTab({ cycleId, isLocked }: { cycleId: ID; isLocked: boolean })
           ))}
         </div>
         {!isLocked && (
-          <button style={btnPrimary} onClick={() => setStep('choose-type')}>+ Add Proposal</button>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <button style={btnPrimary} onClick={startCreateEcon}>+ Economic Proposal</button>
+            <button style={btnPrimary} onClick={startCreateLang}>+ Language Proposal</button>
+          </div>
         )}
       </div>
 
@@ -1749,7 +1654,12 @@ function ProposalsTab({ cycleId, isLocked }: { cycleId: ID; isLocked: boolean })
           </svg>
           <div style={{ fontSize: '15px', fontWeight: 600, color: '#0F172A', marginBottom: '6px' }}>No proposals yet</div>
           <div style={{ fontSize: '13px', color: '#64748B', marginBottom: '20px' }}>Add economic items or language provisions being negotiated.</div>
-          {!isLocked && <button style={btnPrimary} onClick={() => setStep('choose-type')}>Add First Proposal</button>}
+          {!isLocked && (
+            <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
+              <button style={btnPrimary} onClick={startCreateEcon}>+ Economic Proposal</button>
+              <button style={btnPrimary} onClick={startCreateLang}>+ Language Proposal</button>
+            </div>
+          )}
         </div>
       ) : (
         <>

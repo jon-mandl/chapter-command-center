@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
 import { supabase, HOURS_QUERY_MAX } from '../lib/supabase'
 import { useUserSettings } from '../lib/useUserSettings'
 import { useToast } from '../lib/toast'
@@ -56,7 +56,9 @@ export default function MembersHours(): React.JSX.Element {
   const [loadError, setLoadError] = useState('')
 
   const [yearFilter, setYearFilter] = useState<number>(DEFAULT_YEAR)
-  const [companyFilter, setCompanyFilter] = useState<string>('all')
+  const [companySearch, setCompanySearch] = useState('')
+  // Which pivot cell's entries are expanded beneath its company row
+  const [expandedCell, setExpandedCell] = useState<{ key: string; month: number } | null>(null)
 
   const [showForm, setShowForm] = useState(false)
   const [editing, setEditing] = useState<WorkforceHours | null>(null)
@@ -97,11 +99,6 @@ export default function MembersHours(): React.JSX.Element {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [effectiveChapterId])
 
-  function companyName(id: ID | null): string {
-    if (!id) return '—'
-    return companies.find((c) => c.id === id)?.company_name ?? '(unknown)'
-  }
-
   function unionLabel(id: ID | null): string {
     if (!id) return '—'
     const u = unions.find((x) => x.id === id)
@@ -117,29 +114,74 @@ export default function MembersHours(): React.JSX.Element {
     return Array.from(years).sort((a, b) => b - a)
   }, [rows])
 
-  const filtered = useMemo(() => {
-    return rows.filter((r) => {
-      const { year } = parseReportMonth(r.report_month)
-      if (year !== yearFilter) return false
-      if (companyFilter !== 'all' && r.company_id !== companyFilter) return false
-      return true
-    })
-  }, [rows, yearFilter, companyFilter])
+  const yearRows = useMemo(
+    () => rows.filter((r) => parseReportMonth(r.report_month).year === yearFilter),
+    [rows, yearFilter]
+  )
 
-  const monthlyTotals = useMemo(() => {
-    const totals = Array.from({ length: 12 }, () => 0)
-    filtered.forEach((r) => {
+  // One pivot row per company (plus one for entries with no company link):
+  // per-month sums for the cells and the underlying rows for the expansion.
+  interface PivotRow {
+    key: string // company id, or 'unlinked'
+    label: string
+    monthSums: number[]
+    monthEntries: WorkforceHours[][]
+    total: number
+  }
+
+  const pivot = useMemo<PivotRow[]>(() => {
+    const map = new Map<string, PivotRow>()
+    yearRows.forEach((r) => {
+      const key = r.company_id ?? 'unlinked'
+      let row = map.get(key)
+      if (!row) {
+        row = {
+          key,
+          label: r.company_id
+            ? (companies.find((c) => c.id === r.company_id)?.company_name ?? '(unknown company)')
+            : 'Unlinked entries',
+          monthSums: Array.from({ length: 12 }, () => 0),
+          monthEntries: Array.from({ length: 12 }, () => [] as WorkforceHours[]),
+          total: 0
+        }
+        map.set(key, row)
+      }
       const { month } = parseReportMonth(r.report_month)
-      totals[month - 1] += Number(r.total_hours ?? 0)
+      if (month >= 1 && month <= 12) {
+        const h = Number(r.total_hours ?? 0)
+        row.monthSums[month - 1] += h
+        row.monthEntries[month - 1].push(r)
+        row.total += h
+      }
     })
-    return totals
-  }, [filtered])
+    return Array.from(map.values()).sort((a, b) => {
+      if (a.key === 'unlinked') return 1
+      if (b.key === 'unlinked') return -1
+      return a.label.localeCompare(b.label)
+    })
+  }, [yearRows, companies])
 
-  const yearTotal = monthlyTotals.reduce((sum, h) => sum + h, 0)
+  const searchTerm = companySearch.trim().toLowerCase()
+  const visiblePivot = searchTerm
+    ? pivot.filter((p) => p.label.toLowerCase().includes(searchTerm))
+    : pivot
+
+  const yearTotal = yearRows.reduce((sum, r) => sum + Number(r.total_hours ?? 0), 0)
+  const footerTotals = Array.from({ length: 12 }, (_, m) =>
+    visiblePivot.reduce((sum, p) => sum + p.monthSums[m], 0))
+  const footerGrandTotal = footerTotals.reduce((sum, t) => sum + t, 0)
 
   function startCreate(): void {
     setEditing(null)
     setForm(EMPTY_FORM)
+    setSaveError('')
+    setShowForm(true)
+  }
+
+  // Cell click on an empty month: open the form prefilled for that slot.
+  function startCreateFor(companyKey: string, month: number): void {
+    setEditing(null)
+    setForm({ ...EMPTY_FORM, year: yearFilter, month, company_id: companyKey === 'unlinked' ? '' : companyKey })
     setSaveError('')
     setShowForm(true)
   }
@@ -324,86 +366,141 @@ export default function MembersHours(): React.JSX.Element {
         </div>
       )}
 
-      {/* Summary card */}
-      <div style={{ ...card, marginBottom: '20px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px', gap: '12px', flexWrap: 'wrap' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <span style={{ fontSize: '14px', fontWeight: 700, color: '#0F172A' }}>Monthly Summary</span>
-            <select value={yearFilter} onChange={(e) => setYearFilter(parseInt(e.target.value))} style={{ ...inputStyle, width: 'auto', fontSize: '12px', padding: '4px 8px' }}>
+      {/* Company × month pivot */}
+      <div style={{ background: '#fff', border: '1px solid #E2E8F0', borderRadius: '10px', overflow: 'hidden' }}>
+        <div style={{ padding: '14px 18px', borderBottom: '1px solid #E2E8F0', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+            <span style={{ fontSize: '14px', fontWeight: 700, color: '#0F172A' }}>Hours by Company</span>
+            <select
+              value={yearFilter}
+              onChange={(e) => { setYearFilter(parseInt(e.target.value)); setExpandedCell(null) }}
+              style={{ ...inputStyle, width: 'auto', fontSize: '12px', padding: '4px 8px' }}
+              aria-label="Year"
+            >
               {availableYears.map((y) => <option key={y} value={y}>{y}</option>)}
             </select>
-            <select value={companyFilter} onChange={(e) => setCompanyFilter(e.target.value)} style={{ ...inputStyle, width: 'auto', fontSize: '12px', padding: '4px 8px' }}>
-              <option value="all">All companies</option>
-              {companies.map((c) => <option key={c.id} value={c.id}>{c.company_name}</option>)}
-            </select>
+            <input
+              style={{ ...inputStyle, width: '200px', fontSize: '12px', padding: '4px 8px' }}
+              placeholder="Search company…"
+              value={companySearch}
+              onChange={(e) => setCompanySearch(e.target.value)}
+              aria-label="Search companies"
+            />
           </div>
           <span style={{ fontSize: '13px', color: '#64748B' }}>
             <strong style={{ color: '#0F172A', fontSize: '15px' }}>{Math.round(yearTotal).toLocaleString()}</strong> hours in {yearFilter}
           </span>
         </div>
-        <div className="table-scroll">
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(12, 1fr)', gap: '4px', minWidth: '600px' }}>
-          {MONTH_LABELS.map((label, i) => {
-            const total = monthlyTotals[i]
-            return (
-              <div key={label} style={{ textAlign: 'center', padding: '8px 4px', background: total > 0 ? '#EEF2FF' : '#F8FAFC', borderRadius: '6px' }}>
-                <div style={{ fontSize: '10px', fontWeight: 600, color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{label}</div>
-                <div style={{ fontSize: '13px', fontWeight: 600, color: total > 0 ? '#0F172A' : '#CBD5E1', marginTop: '4px' }}>
-                  {total > 0 ? Math.round(total).toLocaleString() : '—'}
-                </div>
-              </div>
-            )
-          })}
-        </div>
-        </div>
-      </div>
-
-      {/* Detail table */}
-      <div style={{ background: '#fff', border: '1px solid #E2E8F0', borderRadius: '10px', overflow: 'hidden' }}>
-        <div style={{ padding: '14px 18px', borderBottom: '1px solid #E2E8F0', fontSize: '14px', fontWeight: 600, color: '#0F172A' }}>
-          {filtered.length} {filtered.length === 1 ? 'Entry' : 'Entries'}
-        </div>
-        {filtered.length === 0 ? (
+        {visiblePivot.length === 0 ? (
           <div style={{ padding: '40px 24px', textAlign: 'center', color: '#94A3B8', fontSize: '13px' }}>
-            No hours recorded for this period.{' '}
-            <button onClick={startCreate} style={{ background: 'none', border: 'none', color: '#1E3A8A', cursor: 'pointer', padding: 0, fontSize: '13px', fontWeight: 600 }}>Add an entry</button>
+            {pivot.length === 0 ? (
+              <>
+                No hours recorded for {yearFilter}.{' '}
+                <button onClick={startCreate} style={{ background: 'none', border: 'none', color: '#1E3A8A', cursor: 'pointer', padding: 0, fontSize: '13px', fontWeight: 600 }}>Add an entry</button>
+              </>
+            ) : 'No companies match your search.'}
           </div>
         ) : (
           <div className="table-scroll">
-          <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '640px' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '1100px' }}>
             <thead>
               <tr>
-                <th style={thStyle} scope="col">Month</th>
-                <th style={thStyle} scope="col">Company</th>
-                <th style={thStyle} scope="col">Local Union</th>
-                <th style={thStyle} scope="col">Classification</th>
-                <th style={{ ...thStyle, textAlign: 'right' }} scope="col">Hours</th>
-                <th style={{ ...thStyle, textAlign: 'right' }} scope="col">Gross Payroll</th>
-                <th style={{ ...thStyle, width: '160px' }} scope="col"></th>
+                <th style={{ ...thStyle, position: 'sticky', left: 0, zIndex: 1 }} scope="col">Company</th>
+                {MONTH_LABELS.map((m) => <th key={m} style={{ ...thStyle, textAlign: 'right' }} scope="col">{m}</th>)}
+                <th style={{ ...thStyle, textAlign: 'right' }} scope="col">Total</th>
               </tr>
             </thead>
             <tbody>
-              {filtered.map((r) => {
-                const { year, month } = parseReportMonth(r.report_month)
+              {visiblePivot.map((p) => {
+                const isRowExpanded = expandedCell?.key === p.key
+                const openMonth = isRowExpanded && expandedCell ? expandedCell.month : null
                 return (
-                  <tr key={r.id}>
-                    <td style={tdStyle}>{MONTH_LABELS[month - 1]} {year}</td>
-                    <td style={tdStyle}>{companyName(r.company_id)}</td>
-                    <td style={tdStyle}>{unionLabel(r.local_union_id)}</td>
-                    <td style={tdStyle}>{r.classification ?? '—'}</td>
-                    <td style={{ ...tdStyle, textAlign: 'right', fontWeight: 600 }}>{Math.round(Number(r.total_hours)).toLocaleString()}</td>
-                    <td style={{ ...tdStyle, textAlign: 'right', color: r.gross_payroll == null ? '#CBD5E1' : '#0F172A' }}>{formatMoney(r.gross_payroll, false)}</td>
-                    <td style={{ ...tdStyle, textAlign: 'right' }}>
-                      <button style={{ ...btnSecondary, fontSize: '12px', padding: '4px 10px', marginRight: '6px' }} onClick={() => startEdit(r)}>Edit</button>
-                      <button style={{ ...btnDanger, fontSize: '12px', padding: '4px 10px' }} onClick={() => setConfirmDelete(r)}>Delete</button>
-                    </td>
-                  </tr>
+                  <Fragment key={p.key}>
+                    <tr>
+                      <td style={{ ...tdStyle, position: 'sticky', left: 0, background: '#fff', zIndex: 1, fontWeight: 600, color: p.key === 'unlinked' ? '#64748B' : '#0F172A' }}>
+                        {p.label}
+                      </td>
+                      {p.monthSums.map((sum, m) => {
+                        const has = p.monthEntries[m].length > 0
+                        const isOpen = openMonth === m
+                        return (
+                          <td key={m} style={{ ...tdStyle, padding: 0, textAlign: 'right' }}>
+                            <button
+                              onClick={() => {
+                                if (has) setExpandedCell(isOpen ? null : { key: p.key, month: m })
+                                else startCreateFor(p.key, m + 1)
+                              }}
+                              title={has ? 'View or edit this month’s entries' : 'Add hours for this month'}
+                              aria-label={`${p.label}, ${MONTH_LABELS[m]} ${yearFilter}: ${has ? `${Math.round(sum).toLocaleString()} hours` : 'no hours'}`}
+                              style={{
+                                display: 'block', width: '100%', padding: '12px 16px', textAlign: 'right',
+                                background: isOpen ? '#EEF2FF' : 'none', border: 'none', cursor: 'pointer',
+                                fontSize: '13px', fontWeight: has ? 600 : 400, color: has ? '#0F172A' : '#CBD5E1'
+                              }}
+                            >
+                              {has ? Math.round(sum).toLocaleString() : '—'}
+                            </button>
+                          </td>
+                        )
+                      })}
+                      <td style={{ ...tdStyle, textAlign: 'right', fontWeight: 700 }}>{Math.round(p.total).toLocaleString()}</td>
+                    </tr>
+                    {isRowExpanded && openMonth != null && (
+                      <tr>
+                        <td colSpan={14} style={{ ...tdStyle, background: '#F8FAFC', padding: '12px 18px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', marginBottom: '6px' }}>
+                            <span style={{ fontSize: '12px', fontWeight: 700, color: '#0F172A' }}>
+                              {p.label} — {MONTH_LABELS[openMonth]} {yearFilter}
+                            </span>
+                            <button
+                              style={{ ...btnSecondary, fontSize: '12px', padding: '3px 10px' }}
+                              onClick={() => startCreateFor(p.key, openMonth + 1)}
+                            >
+                              + Add another entry
+                            </button>
+                          </div>
+                          {p.monthEntries[openMonth].length === 0 ? (
+                            <div style={{ fontSize: '13px', color: '#94A3B8' }}>No entries for this month.</div>
+                          ) : p.monthEntries[openMonth].map((r) => (
+                            <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: '14px', padding: '6px 0', borderTop: '1px solid #F1F5F9', fontSize: '13px', flexWrap: 'wrap' }}>
+                              <span style={{ color: '#475569', minWidth: '130px' }}>{r.classification ?? 'No classification'}</span>
+                              <span style={{ color: '#64748B', minWidth: '90px' }}>{unionLabel(r.local_union_id)}</span>
+                              <span style={{ fontWeight: 600, color: '#0F172A' }}>{Math.round(Number(r.total_hours)).toLocaleString()} hrs</span>
+                              <span style={{ color: r.gross_payroll == null ? '#CBD5E1' : '#64748B' }}>{formatMoney(r.gross_payroll, false)} GPEP</span>
+                              <span style={{ marginLeft: 'auto', display: 'flex', gap: '6px' }}>
+                                <button style={{ ...btnSecondary, fontSize: '12px', padding: '3px 10px' }} onClick={() => startEdit(r)}>Edit</button>
+                                <button style={{ ...btnDanger, fontSize: '12px', padding: '3px 10px' }} onClick={() => setConfirmDelete(r)}>Delete</button>
+                              </span>
+                            </div>
+                          ))}
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
                 )
               })}
             </tbody>
+            <tfoot>
+              <tr>
+                <td style={{ ...tdStyle, position: 'sticky', left: 0, zIndex: 1, background: '#F8FAFC', fontWeight: 700, borderTop: '2px solid #E2E8F0' }}>
+                  {searchTerm ? 'Filtered total' : 'All companies'}
+                </td>
+                {footerTotals.map((t, m) => (
+                  <td key={m} style={{ ...tdStyle, textAlign: 'right', fontWeight: 600, background: '#F8FAFC', borderTop: '2px solid #E2E8F0', color: t > 0 ? '#0F172A' : '#CBD5E1' }}>
+                    {t > 0 ? Math.round(t).toLocaleString() : '—'}
+                  </td>
+                ))}
+                <td style={{ ...tdStyle, textAlign: 'right', fontWeight: 700, background: '#F8FAFC', borderTop: '2px solid #E2E8F0' }}>
+                  {Math.round(footerGrandTotal).toLocaleString()}
+                </td>
+              </tr>
+            </tfoot>
           </table>
           </div>
         )}
+        <div style={{ padding: '10px 18px', borderTop: '1px solid #F1F5F9', fontSize: '11px', color: '#94A3B8' }}>
+          Click a month cell to add hours or open that month’s entries for editing.
+        </div>
       </div>
 
       {showImport && effectiveChapterId && (

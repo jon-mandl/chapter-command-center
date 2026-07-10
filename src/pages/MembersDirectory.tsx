@@ -4,9 +4,14 @@ import { useUserSettings } from '../lib/useUserSettings'
 import { useToast } from '../lib/toast'
 import { describeError } from '../lib/errors'
 import ConfirmDialog from '../lib/ConfirmDialog'
+import ImportDirectoryModal from './ImportDirectoryModal'
 import { inputStyle, labelStyle, btnPrimary, btnSecondary, btnDanger, card, errorBox } from '../lib/ui'
 import { DISCOUNT_TIER_LABEL } from '../lib/serviceCharge'
 import type { MemberCompany, CompanyStatus, DiscountTier, ID } from '../lib/types'
+
+// Most mail clients truncate very long mailto: URLs (Outlook around 2k chars).
+// Beyond this budget we copy the list to the clipboard instead.
+const MAILTO_MAX_LENGTH = 1800
 
 const STATUS_COLORS: Record<CompanyStatus, { bg: string; color: string }> = {
   Active:   { bg: '#f0fdf4', color: '#059669' },
@@ -74,13 +79,14 @@ function payloadFromForm(form: FormState): Omit<MemberCompany, 'id' | 'chapter_i
 }
 
 export default function MembersDirectory(): React.JSX.Element {
-  const { effectiveChapterId, applyChapterFilter, loading: chapterLoading } = useUserSettings()
+  const { effectiveChapterId, applyChapterFilter, isAdmin, loading: chapterLoading } = useUserSettings()
   const toast = useToast()
   const [companies, setCompanies] = useState<MemberCompany[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<'all' | CompanyStatus>('all')
+  const [showImport, setShowImport] = useState(false)
 
   const [selectedId, setSelectedId] = useState<ID | null>(null)
   const [mode, setMode] = useState<'view' | 'edit' | 'create'>('view')
@@ -220,6 +226,29 @@ export default function MembersDirectory(): React.JSX.Element {
     )
   })
 
+  // Deduped email list for the currently filtered companies
+  const filteredEmails = Array.from(new Set(
+    filtered.map((c) => c.contact_email?.trim().toLowerCase()).filter((e): e is string => !!e)
+  ))
+  const missingEmailCount = filtered.filter((c) => !c.contact_email?.trim()).length
+
+  function handleEmailFiltered(): void {
+    if (filteredEmails.length === 0) return
+    const url = 'mailto:?bcc=' + encodeURIComponent(filteredEmails.join(','))
+    if (url.length > MAILTO_MAX_LENGTH) {
+      navigator.clipboard.writeText(filteredEmails.join(', ')).then(
+        () => toast.success(`Too many addresses for one mail link — copied ${filteredEmails.length} addresses. Paste them into the BCC field of a new email.`),
+        () => toast.error('Could not copy the addresses to the clipboard.')
+      )
+      return
+    }
+    const a = document.createElement('a')
+    a.href = url
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+  }
+
   return (
     <div className="split-panel">
       {/* Left: list */}
@@ -251,6 +280,29 @@ export default function MembersDirectory(): React.JSX.Element {
                 {s === 'all' ? `All (${companies.length})` : `${s} (${companies.filter((c) => c.status === s).length})`}
               </button>
             ))}
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '10px', flexWrap: 'wrap' }}>
+            <button
+              style={{ ...btnSecondary, fontSize: '12px', padding: '4px 10px', opacity: filteredEmails.length === 0 ? 0.5 : 1 }}
+              disabled={filteredEmails.length === 0}
+              onClick={handleEmailFiltered}
+              title="Open your email client with the filtered companies in BCC"
+            >
+              Email filtered ({filteredEmails.length})
+            </button>
+            {isAdmin && (
+              <button
+                style={{ ...btnSecondary, fontSize: '12px', padding: '4px 10px', opacity: effectiveChapterId ? 1 : 0.5 }}
+                disabled={!effectiveChapterId}
+                title={effectiveChapterId ? 'Import companies from Excel or CSV' : 'Select a specific chapter from the sidebar first'}
+                onClick={() => setShowImport(true)}
+              >
+                Import
+              </button>
+            )}
+            {missingEmailCount > 0 && (
+              <span style={{ fontSize: '11px', color: '#94A3B8' }}>{missingEmailCount} without an email skipped</span>
+            )}
           </div>
         </div>
 
@@ -325,6 +377,17 @@ export default function MembersDirectory(): React.JSX.Element {
         onConfirm={handleDelete}
         onCancel={() => setConfirmDelete(null)}
       />
+
+      {showImport && effectiveChapterId && (
+        <ImportDirectoryModal
+          chapterId={effectiveChapterId}
+          companies={companies}
+          onClose={() => setShowImport(false)}
+          onImported={(created) => {
+            setCompanies((prev) => [...prev, ...created].sort((a, b) => a.company_name.localeCompare(b.company_name)))
+          }}
+        />
+      )}
     </div>
   )
 }

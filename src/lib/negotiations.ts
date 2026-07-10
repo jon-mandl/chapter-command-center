@@ -5,26 +5,6 @@ import { supabase } from './supabase'
 import { describeError } from './errors'
 import type { ID } from './types'
 
-// Distinct classifications defined on a local union's wage packages.
-// Used by the create form (Negotiations) and the edit form (NegotiationDetail).
-export async function loadClassificationsForUnion(
-  localUnionId: string
-): Promise<{ classifications: string[]; error: string | null }> {
-  if (!localUnionId) return { classifications: [], error: null }
-  const { data, error } = await supabase
-    .from('wage_packages')
-    .select('classification')
-    .eq('local_union_id', localUnionId)
-    .order('classification')
-  if (error) {
-    return { classifications: [], error: describeError(error, 'Could not load classifications.') }
-  }
-  const distinct = Array.from(
-    new Set((data ?? []).map((r: { classification: string }) => r.classification).filter(Boolean))
-  )
-  return { classifications: distinct, error: null }
-}
-
 export interface CycleProposalCounts {
   total: number
   open: number

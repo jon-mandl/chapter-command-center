@@ -141,7 +141,8 @@ function rowsFromGrid(grid: string[][]): ImportRow[] {
 
 // ─── CSV parsing (hand-rolled; handles quoted fields and embedded commas) ─────
 
-export function parseCsv(text: string): ImportRow[] {
+// Exported for reuse by the other spreadsheet importers (directory import).
+export function csvToGrid(text: string): string[][] {
   const grid: string[][] = []
   let row: string[] = []
   let field = ''
@@ -167,14 +168,19 @@ export function parseCsv(text: string): ImportRow[] {
     }
   }
   if (field !== '' || row.length > 0) { row.push(field); grid.push(row) }
-  return rowsFromGrid(grid)
+  return grid
+}
+
+export function parseCsv(text: string): ImportRow[] {
+  return rowsFromGrid(csvToGrid(text))
 }
 
 // ─── XLSX parsing (ExcelJS, loaded on demand to keep it out of the bundle) ────
 
 // ExcelJS cell values can be strings, numbers, Dates, rich text, formulas...
 // Normalize everything to a display string, then reuse the CSV row logic.
-function cellToString(value: unknown): string {
+// Exported for reuse by the other spreadsheet importers (see lib/xlsx.ts).
+export function cellToString(value: unknown): string {
   if (value == null) return ''
   if (typeof value === 'string') return value
   if (typeof value === 'number' || typeof value === 'boolean') return String(value)

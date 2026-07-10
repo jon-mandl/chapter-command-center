@@ -4,6 +4,8 @@ import { useUserSettings } from '../lib/useUserSettings'
 import { useToast } from '../lib/toast'
 import { describeError } from '../lib/errors'
 import { inputStyle, labelStyle, btnPrimary, btnSecondary, btnDanger, card, errorBox, formatDate, thStyle, tdStyle } from '../lib/ui'
+import { US_STATES_50 } from '../lib/usStates'
+import { STORAGE_BUCKETS } from '../lib/storage'
 import type { Chapter, UserSettings, ID } from '../lib/types'
 
 type Role = NonNullable<UserSettings['role']>
@@ -31,7 +33,7 @@ interface PendingInviteRow {
 }
 
 export default function AdminUsers(): React.JSX.Element {
-  const { settings: mySettings, refresh: refreshMySettings, isAdmin } = useUserSettings()
+  const { settings: mySettings, refresh: refreshMySettings, isAdmin, adminViewChapterId, setAdminViewChapterId } = useUserSettings()
   const toast = useToast()
 
   const [users, setUsers] = useState<UserRow[]>([])
@@ -59,6 +61,12 @@ export default function AdminUsers(): React.JSX.Element {
   const [deleting, setDeleting] = useState(false)
   const [deleteError, setDeleteError] = useState('')
 
+  // Delete-chapter dialog (testing tool — destroys the chapter and ALL its data)
+  const [chapterToDelete, setChapterToDelete] = useState<Chapter | null>(null)
+  const [deleteChapterText, setDeleteChapterText] = useState('')
+  const [deletingChapter, setDeletingChapter] = useState(false)
+  const [deleteChapterError, setDeleteChapterError] = useState('')
+
   // Invite user form + pending invites list
   const [pendingInvites, setPendingInvites] = useState<PendingInviteRow[]>([])
   const [showInviteForm, setShowInviteForm] = useState(false)
@@ -67,34 +75,55 @@ export default function AdminUsers(): React.JSX.Element {
   const [inviteError, setInviteError] = useState('')
   const [cancellingInviteId, setCancellingInviteId] = useState<ID | null>(null)
 
-  useEffect(() => {
-    if (!isAdmin) return
-    let cancelled = false
-    void Promise.all([
+  // Also called after a chapter delete so users show as Unassigned and the
+  // chapter's pending invites disappear.
+  async function loadAll(): Promise<void> {
+    const [uRes, cRes, iRes] = await Promise.all([
       supabase.from('user_settings').select('*, chapters(id, name)').order('created_at', { ascending: false }),
       supabase.from('chapters').select('*').order('name'),
       supabase.from('pending_invites').select('*, chapters(id, name)').order('created_at', { ascending: false })
-    ]).then(([uRes, cRes, iRes]) => {
-      if (cancelled) return
-      if (uRes.error) {
-        setLoadError(describeError(uRes.error, 'Could not load users.'))
-      } else {
-        setUsers((uRes.data ?? []) as UserRow[])
+    ])
+    if (uRes.error) {
+      setLoadError(describeError(uRes.error, 'Could not load users.'))
+    } else {
+      setLoadError('')
+      setUsers((uRes.data ?? []) as UserRow[])
+    }
+    if (cRes.error) {
+      toast.error('Could not load chapters: ' + describeError(cRes.error))
+    } else {
+      setChapters((cRes.data ?? []) as Chapter[])
+    }
+    if (iRes.error) {
+      toast.error('Could not load pending invites: ' + describeError(iRes.error))
+    } else {
+      setPendingInvites((iRes.data ?? []) as PendingInviteRow[])
+    }
+    setLoading(false)
+  }
+
+  useEffect(() => {
+    if (!isAdmin) return
+    // loadAll only sets state after its awaited queries resolve, so this
+    // cannot cascade synchronous renders — the rule can't see past the await.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void loadAll()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAdmin])
+
+  // Escape closes the delete-chapter dialog (unless a delete is running)
+  useEffect(() => {
+    if (!chapterToDelete) return
+    function onKey(e: KeyboardEvent): void {
+      if (e.key === 'Escape' && !deletingChapter) {
+        setChapterToDelete(null)
+        setDeleteChapterText('')
+        setDeleteChapterError('')
       }
-      if (cRes.error) {
-        toast.error('Could not load chapters: ' + describeError(cRes.error))
-      } else {
-        setChapters((cRes.data ?? []) as Chapter[])
-      }
-      if (iRes.error) {
-        toast.error('Could not load pending invites: ' + describeError(iRes.error))
-      } else {
-        setPendingInvites((iRes.data ?? []) as PendingInviteRow[])
-      }
-      setLoading(false)
-    })
-    return () => { cancelled = true }
-  }, [isAdmin, toast])
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [chapterToDelete, deletingChapter])
 
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase()
@@ -208,6 +237,63 @@ export default function AdminUsers(): React.JSX.Element {
     toast.success(`Invite for ${invite.email} cancelled.`)
   }
 
+  async function handleDeleteChapter(): Promise<void> {
+    if (!chapterToDelete) return
+    setDeleteChapterError('')
+    setDeletingChapter(true)
+    const id = chapterToDelete.id
+    const name = chapterToDelete.name
+
+    // 1. Collect storage paths BEFORE deleting the row — the DB cascade wipes
+    //    the pointer tables but never touches Storage blobs. Paths are not
+    //    chapter-prefixed in every bucket (grievance/negotiation files are
+    //    keyed by grievance/cycle id), so this must be path-driven.
+    const [docsRes, negDocsRes, grievDocsRes] = await Promise.all([
+      supabase.from('documents').select('file_path').eq('chapter_id', id),
+      supabase.from('negotiation_documents').select('file_path').eq('chapter_id', id),
+      supabase.from('grievance_documents').select('file_path, grievances!inner(chapter_id)').eq('grievances.chapter_id', id)
+    ])
+    const listErr = docsRes.error ?? negDocsRes.error ?? grievDocsRes.error
+    if (listErr) {
+      setDeletingChapter(false)
+      setDeleteChapterError('Could not list this chapter’s files: ' + describeError(listErr))
+      return
+    }
+    const pathsOf = (rows: unknown): string[] =>
+      ((rows ?? []) as { file_path: string }[]).map((r) => r.file_path).filter(Boolean)
+    const purgeList: Array<{ bucket: string; paths: string[] }> = [
+      { bucket: STORAGE_BUCKETS.documents.name, paths: pathsOf(docsRes.data) },
+      { bucket: STORAGE_BUCKETS.negotiationDocuments.name, paths: pathsOf(negDocsRes.data) },
+      { bucket: STORAGE_BUCKETS.grievanceDocuments.name, paths: pathsOf(grievDocsRes.data) }
+    ]
+
+    // 2. Purge the blobs (chunked). A storage failure is non-fatal — surface
+    //    it and continue, mirroring the negotiation delete flow.
+    for (const { bucket, paths } of purgeList) {
+      for (let i = 0; i < paths.length; i += 100) {
+        const { error: storageErr } = await supabase.storage.from(bucket).remove(paths.slice(i, i + 100))
+        if (storageErr) {
+          toast.error('Some files could not be removed from storage: ' + describeError(storageErr))
+        }
+      }
+    }
+
+    // 3. Delete the chapter row — every chapter table cascades in the DB, and
+    //    user_settings.chapter_id goes NULL (users become Unassigned).
+    const { error } = await supabase.from('chapters').delete().eq('id', id)
+    setDeletingChapter(false)
+    if (error) {
+      setDeleteChapterError(describeError(error, 'Could not delete the chapter.'))
+      return
+    }
+    setChapters((prev) => prev.filter((c) => c.id !== id))
+    if (adminViewChapterId === id) setAdminViewChapterId(null)
+    setChapterToDelete(null)
+    setDeleteChapterText('')
+    toast.success(`Chapter "${name}" and all of its data deleted.`)
+    void loadAll()
+  }
+
   async function handleDeleteUser(): Promise<void> {
     if (!userToDelete) return
     setDeleteError('')
@@ -273,7 +359,10 @@ export default function AdminUsers(): React.JSX.Element {
             </div>
             <div>
               <label style={labelStyle}>State</label>
-              <input style={inputStyle} value={chapterForm.state} onChange={(e) => setChapterForm({ ...chapterForm, state: e.target.value })} maxLength={2} placeholder="CA" />
+              <select style={inputStyle} value={chapterForm.state} onChange={(e) => setChapterForm({ ...chapterForm, state: e.target.value })}>
+                <option value="">— Select —</option>
+                {US_STATES_50.map((s) => <option key={s.code} value={s.code}>{s.code} — {s.name}</option>)}
+              </select>
             </div>
           </div>
           {chapterError && <div style={errorBox}>{chapterError}</div>}
@@ -333,6 +422,56 @@ export default function AdminUsers(): React.JSX.Element {
               {sendingInvite ? 'Sending…' : 'Send Invite'}
             </button>
             <button style={btnSecondary} disabled={sendingInvite} onClick={() => { setShowInviteForm(false); setInviteError('') }}>Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {chapters.length > 0 && (
+        <div style={{ marginBottom: '24px' }}>
+          <div style={{ fontSize: '13px', fontWeight: 600, color: '#0F172A', marginBottom: '8px' }}>
+            Chapters ({chapters.length})
+          </div>
+          <div style={{ background: '#fff', border: '1px solid #E2E8F0', borderRadius: '10px', overflow: 'hidden' }}>
+            <div className="table-scroll">
+            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '600px' }}>
+              <thead>
+                <tr>
+                  <th style={thStyle} scope="col">Name</th>
+                  <th style={thStyle} scope="col">City</th>
+                  <th style={thStyle} scope="col">State</th>
+                  <th style={{ ...thStyle, textAlign: 'right' }} scope="col">Users</th>
+                  <th style={thStyle} scope="col">Created</th>
+                  <th style={thStyle} scope="col" aria-label="Actions"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {chapters.map((c) => {
+                  const userCount = users.filter((u) => u.chapter_id === c.id).length
+                  return (
+                    <tr key={c.id}>
+                      <td style={tdStyle}><span style={{ fontWeight: 600, color: '#0F172A' }}>{c.name}</span></td>
+                      <td style={tdStyle}>{c.city ?? <span style={{ color: '#CBD5E1' }}>—</span>}</td>
+                      <td style={tdStyle}>{c.state ?? <span style={{ color: '#CBD5E1' }}>—</span>}</td>
+                      <td style={{ ...tdStyle, textAlign: 'right' }}>{userCount}</td>
+                      <td style={tdStyle}>
+                        <span style={{ fontSize: '12px', color: '#64748B' }}>{formatDate(c.created_at.slice(0, 10))}</span>
+                      </td>
+                      <td style={{ ...tdStyle, textAlign: 'right' }}>
+                        <button
+                          style={{ ...btnDanger, padding: '4px 10px', fontSize: '12px' }}
+                          onClick={() => { setDeleteChapterError(''); setDeleteChapterText(''); setChapterToDelete(c) }}
+                          aria-label={`Delete chapter ${c.name}`}
+                          title={`Delete chapter ${c.name}`}
+                        >
+                          Delete
+                        </button>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+            </div>
           </div>
         </div>
       )}
@@ -588,6 +727,66 @@ export default function AdminUsers(): React.JSX.Element {
                 style={btnSecondary}
                 disabled={deleting}
                 onClick={() => { setUserToDelete(null); setDeleteError('') }}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete chapter confirmation modal (type-the-name to confirm) */}
+      {chapterToDelete && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="delete-chapter-heading"
+          style={{
+            position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.5)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000
+          }}
+        >
+          <div style={{ background: '#fff', borderRadius: '12px', padding: '28px 32px', maxWidth: '480px', width: '100%', boxShadow: '0 8px 32px rgba(15,23,42,0.18)' }}>
+            <h2 id="delete-chapter-heading" style={{ fontSize: '18px', fontWeight: 700, color: '#b91c1c', margin: '0 0 8px' }}>
+              Delete chapter?
+            </h2>
+            <p style={{ fontSize: '14px', fontWeight: 600, color: '#0F172A', margin: '0 0 10px' }}>
+              {chapterToDelete.name}
+            </p>
+            <p style={{ fontSize: '13px', color: '#475569', lineHeight: 1.6, margin: '0 0 10px' }}>
+              This permanently deletes <strong>everything</strong> in this chapter: local unions and wage
+              packages, negotiations (sessions, proposals, documents), grievances and their files, member
+              companies, workforce hours, committees, documents, deadlines, activity history, and pending
+              invites. Uploaded files are removed from storage.
+            </p>
+            <p style={{ fontSize: '13px', color: '#64748B', margin: '0 0 16px', lineHeight: 1.5 }}>
+              {users.filter((u) => u.chapter_id === chapterToDelete.id).length} user(s) assigned to this
+              chapter keep their accounts but become Unassigned. This cannot be undone.
+            </p>
+            <label style={labelStyle} htmlFor="delete-chapter-confirm">
+              Type the chapter name to confirm
+            </label>
+            <input
+              id="delete-chapter-confirm"
+              style={{ ...inputStyle, marginBottom: '14px' }}
+              value={deleteChapterText}
+              autoFocus
+              onChange={(e) => setDeleteChapterText(e.target.value)}
+              placeholder={chapterToDelete.name}
+            />
+            {deleteChapterError && <div style={errorBox}>{deleteChapterError}</div>}
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button
+                style={{ ...btnDanger, opacity: deletingChapter || deleteChapterText.trim() !== chapterToDelete.name ? 0.5 : 1 }}
+                disabled={deletingChapter || deleteChapterText.trim() !== chapterToDelete.name}
+                onClick={handleDeleteChapter}
+              >
+                {deletingChapter ? 'Deleting…' : 'Delete this chapter'}
+              </button>
+              <button
+                style={btnSecondary}
+                disabled={deletingChapter}
+                onClick={() => { setChapterToDelete(null); setDeleteChapterText(''); setDeleteChapterError('') }}
               >
                 Cancel
               </button>

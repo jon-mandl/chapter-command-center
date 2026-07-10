@@ -59,3 +59,9 @@ export const US_STATES: ReadonlyArray<{ code: string; name: string }> = [
   { code: 'AS', name: 'American Samoa' },
   { code: 'MP', name: 'Northern Mariana Islands' },
 ]
+
+// The 50 states only — no DC or territories. Used where the product spec
+// calls for a strict 50-state list (Local Unions, Chapters).
+const NON_STATE_CODES = new Set(['DC', 'PR', 'GU', 'VI', 'AS', 'MP'])
+export const US_STATES_50: ReadonlyArray<{ code: string; name: string }> =
+  US_STATES.filter((s) => !NON_STATE_CODES.has(s.code))

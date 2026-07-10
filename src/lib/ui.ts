@@ -1,6 +1,6 @@
 // Shared style tokens — import from here, never redefine locally
 
-import type { NegotiationStatus, LocalUnion } from './types'
+import type { NegotiationStatus, GrievanceStage, LocalUnion } from './types'
 
 // ─── Brand Colors ─────────────────────────────────────────────────────────────
 export const COLORS = {
@@ -127,6 +127,20 @@ export const NEG_STATUS_COLORS: Record<NegotiationStatus, { bg: string; color: s
   Settled:  { bg: '#EEF2FF', color: '#4F46E5', border: '#C7D2FE' },
   Archived: { bg: '#F8FAFC', color: '#64748B', border: '#E2E8F0' }
 }
+
+// Stage pill colors for grievances — used by the Grievances page and the
+// Home dashboard breakdown.
+export const GRIEVANCE_STAGE_COLORS: Record<GrievanceStage, { bg: string; color: string; border: string }> = {
+  Filed:       { bg: '#fef2f2', color: '#dc2626', border: '#fecaca' },
+  LMC:         { bg: '#fff7ed', color: '#ea580c', border: '#fed7aa' },
+  CIR:         { bg: '#fefce8', color: '#ca8a04', border: '#fef08a' },
+  Arbitration: { bg: '#fefce8', color: '#a16207', border: '#fde68a' },
+  Closed:      { bg: '#F8FAFC', color: '#64748B', border: '#E2E8F0' },
+  Withdrawn:   { bg: '#F8FAFC', color: '#64748B', border: '#E2E8F0' }
+}
+
+// A grievance in any of these stages counts as active/open.
+export const GRIEVANCE_ACTIVE_STAGES: GrievanceStage[] = ['Filed', 'LMC', 'CIR', 'Arbitration']
 
 // "Local 11 — Los Angeles" display label for a local union.
 export function localUnionLabel(union: LocalUnion | null | undefined): string {

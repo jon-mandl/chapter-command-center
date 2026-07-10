@@ -359,7 +359,9 @@ function AdminChapterSwitcher(): React.JSX.Element {
         setChapters((data ?? []) as Chapter[])
       })
     return () => { cancelled = true }
-  }, [])
+  // Refetch when the selected chapter changes so the option list drops
+  // chapters deleted in User Management (the delete resets the selection).
+  }, [adminViewChapterId])
 
   return (
     <div style={{ padding: '12px 20px', borderBottom: '1px solid rgba(255,255,255,0.1)' }}>

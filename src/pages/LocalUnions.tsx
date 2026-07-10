@@ -5,6 +5,8 @@ import { useToast } from '../lib/toast'
 import { describeError } from '../lib/errors'
 import ConfirmDialog from '../lib/ConfirmDialog'
 import { inputStyle, labelStyle, btnPrimary, btnSecondary, btnDanger, card, errorBox, formatDate, thStyle, tdStyle } from '../lib/ui'
+import { US_STATES_50 } from '../lib/usStates'
+import ImportLocalUnionsModal from './ImportLocalUnionsModal'
 import type {
   LocalUnion,
   WagePackage,
@@ -14,27 +16,26 @@ import type {
   ID
 } from '../lib/types'
 
-const CATEGORIES: WageComponentCategory[] = ['wage', 'benefit', 'deduction']
-const UNITS: WageComponentUnit[] = ['$/hr', '% of gross', '$/wk']
+const CATEGORIES: WageComponentCategory[] = ['wage', 'benefit', 'industry_fund']
+const UNITS: WageComponentUnit[] = ['$/hr', '% of gross']
 
 const CATEGORY_LABEL: Record<WageComponentCategory, string> = {
-  wage: 'Wage', benefit: 'Benefit', deduction: 'Deduction'
+  wage: 'Wage', benefit: 'Fringe Benefit', industry_fund: 'Industry Fund'
 }
 
 const CATEGORY_COLORS: Record<WageComponentCategory, { bg: string; color: string }> = {
-  wage:      { bg: '#EEF2FF', color: '#4F46E5' },
-  benefit:   { bg: '#f0fdf4', color: '#059669' },
-  deduction: { bg: '#fff7ed', color: '#ea580c' }
+  wage:          { bg: '#EEF2FF', color: '#4F46E5' },
+  benefit:       { bg: '#f0fdf4', color: '#059669' },
+  industry_fund: { bg: '#fff7ed', color: '#ea580c' }
 }
 
-type UnionForm = { local_number: string; jurisdiction: string; city: string; state: string }
-const EMPTY_UNION: UnionForm = { local_number: '', jurisdiction: '', city: '', state: '' }
+type UnionForm = { local_number: string; city: string; state: string }
+const EMPTY_UNION: UnionForm = { local_number: '', city: '', state: '' }
 
-type PackageForm = { classification: string; effective_date: string; expiration_date: string }
-const EMPTY_PACKAGE: PackageForm = { classification: 'Journeyman', effective_date: '', expiration_date: '' }
+type PackageForm = { effective_date: string; expiration_date: string }
+const EMPTY_PACKAGE: PackageForm = { effective_date: '', expiration_date: '' }
 
 type ComponentForm = {
-  component_code: string
   component_name: string
   category: WageComponentCategory
   amount: string
@@ -42,16 +43,17 @@ type ComponentForm = {
   notes: string
 }
 const EMPTY_COMPONENT: ComponentForm = {
-  component_code: '', component_name: '', category: 'wage', amount: '', unit: '$/hr', notes: ''
+  component_name: '', category: 'wage', amount: '', unit: '$/hr', notes: ''
 }
 
 export default function LocalUnions(): React.JSX.Element {
-  const { effectiveChapterId, applyChapterFilter, loading: chapterLoading } = useUserSettings()
+  const { effectiveChapterId, applyChapterFilter, isAdmin, loading: chapterLoading } = useUserSettings()
   const toast = useToast()
   const [unions, setUnions] = useState<LocalUnion[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
   const [selectedId, setSelectedId] = useState<ID | null>(null)
+  const [showImport, setShowImport] = useState(false)
 
   // Union create/edit
   const [showUnionForm, setShowUnionForm] = useState(false)
@@ -90,18 +92,25 @@ export default function LocalUnions(): React.JSX.Element {
   const [confirmDeleteComponent, setConfirmDeleteComponent] = useState<WageComponent | null>(null)
   const [deletingComponent, setDeletingComponent] = useState(false)
 
-  // Load unions
-  useEffect(() => {
-    let cancelled = false
-    void applyChapterFilter(
+  // Load unions (also called after an import to pick up new rows)
+  async function loadUnions(): Promise<void> {
+    const { data, error: err } = await applyChapterFilter(
       supabase.from('local_unions').select('*').order('local_number')
-    ).then(({ data, error: err }: { data: unknown; error: unknown }) => {
-      if (cancelled) return
-      if (err) setLoadError(describeError(err, 'Could not load local unions.'))
-      else setUnions((data ?? []) as LocalUnion[])
-      setLoading(false)
-    })
-    return () => { cancelled = true }
+    ) as { data: unknown; error: unknown }
+    if (err) {
+      setLoadError(describeError(err, 'Could not load local unions.'))
+    } else {
+      setLoadError('')
+      setUnions((data ?? []) as LocalUnion[])
+    }
+    setLoading(false)
+  }
+
+  useEffect(() => {
+    // loadUnions only sets state after its awaited queries resolve, so this
+    // cannot cascade synchronous renders — the rule can't see past the await.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void loadUnions()
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [effectiveChapterId])
 
@@ -185,7 +194,6 @@ export default function LocalUnions(): React.JSX.Element {
     setEditingUnion(u)
     setUnionForm({
       local_number: String(u.local_number),
-      jurisdiction: u.jurisdiction ?? '',
       city: u.city ?? '',
       state: u.state ?? ''
     })
@@ -209,7 +217,6 @@ export default function LocalUnions(): React.JSX.Element {
 
     const payload = {
       local_number: num,
-      jurisdiction: unionForm.jurisdiction.trim() || null,
       city: unionForm.city.trim() || null,
       state: unionForm.state.trim() || null
     }
@@ -286,7 +293,6 @@ export default function LocalUnions(): React.JSX.Element {
   function startEditPackage(p: WagePackage): void {
     setEditingPackage(p)
     setPackageForm({
-      classification: p.classification,
       effective_date: p.effective_date ?? '',
       expiration_date: p.expiration_date ?? ''
     })
@@ -297,14 +303,11 @@ export default function LocalUnions(): React.JSX.Element {
   async function handleSavePackage(): Promise<void> {
     if (!selectedId) return
     setPackageError('')
-    if (!packageForm.classification.trim()) {
-      setPackageError('Classification is required.')
-      return
-    }
     setSavingPackage(true)
 
+    // Classification is no longer entered in the UI — new packages take the
+    // database default ('Journeyman'); edits leave the stored value alone.
     const payload = {
-      classification: packageForm.classification.trim(),
       effective_date: packageForm.effective_date || null,
       expiration_date: packageForm.expiration_date || null
     }
@@ -379,7 +382,6 @@ export default function LocalUnions(): React.JSX.Element {
   function startEditComponent(c: WageComponent): void {
     setEditingComponent(c)
     setComponentForm({
-      component_code: c.component_code,
       component_name: c.component_name,
       category: c.category,
       amount: String(c.amount),
@@ -393,9 +395,7 @@ export default function LocalUnions(): React.JSX.Element {
   async function handleSaveComponent(): Promise<void> {
     if (!selectedPackageId) return
     setComponentError('')
-    const code = componentForm.component_code.trim()
     const name = componentForm.component_name.trim()
-    if (!code) { setComponentError('Code is required.'); return }
     if (!name) { setComponentError('Name is required.'); return }
     const amt = Number(componentForm.amount)
     if (componentForm.amount.trim() === '' || Number.isNaN(amt)) {
@@ -405,7 +405,6 @@ export default function LocalUnions(): React.JSX.Element {
     setSavingComponent(true)
 
     const payload = {
-      component_code: code,
       component_name: name,
       category: componentForm.category,
       amount: amt,
@@ -469,16 +468,16 @@ export default function LocalUnions(): React.JSX.Element {
 
   // ── Derived totals ─────────────────────────────────────────────────────────
   const componentTotals = useMemo(() => {
-    let wage = 0, benefit = 0, deduction = 0
+    let wage = 0, benefit = 0, industryFund = 0
     components.forEach((c) => {
       // Only sum $/hr items for the headline total; mixing units would be misleading.
       if (c.unit !== '$/hr') return
       const v = Number(c.amount ?? 0)
       if (c.category === 'wage') wage += v
       else if (c.category === 'benefit') benefit += v
-      else if (c.category === 'deduction') deduction += v
+      else if (c.category === 'industry_fund') industryFund += v
     })
-    return { wage, benefit, deduction, gross: wage + benefit - deduction }
+    return { wage, benefit, industryFund, gross: wage + benefit + industryFund }
   }, [components])
 
   if (chapterLoading || loading) {
@@ -489,9 +488,21 @@ export default function LocalUnions(): React.JSX.Element {
     <div className="split-panel">
       {/* Left: union list */}
       <div className="split-panel-list" style={{ width: '260px' }}>
-        <div style={{ padding: '20px', borderBottom: '1px solid #E2E8F0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div style={{ padding: '20px', borderBottom: '1px solid #E2E8F0', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
           <span style={{ fontSize: '15px', fontWeight: 700, color: '#0F172A' }}>Local Unions</span>
-          <button style={{ ...btnPrimary, fontSize: '12px', padding: '5px 12px' }} onClick={startCreateUnion}>+ Add</button>
+          <div style={{ display: 'flex', gap: '6px' }}>
+            {isAdmin && (
+              <button
+                style={{ ...btnSecondary, fontSize: '12px', padding: '5px 10px', opacity: effectiveChapterId ? 1 : 0.5 }}
+                disabled={!effectiveChapterId}
+                title={effectiveChapterId ? 'Import local unions and wage data from Excel' : 'Select a specific chapter from the sidebar first'}
+                onClick={() => setShowImport(true)}
+              >
+                Import
+              </button>
+            )}
+            <button style={{ ...btnPrimary, fontSize: '12px', padding: '5px 12px' }} onClick={startCreateUnion}>+ Add</button>
+          </div>
         </div>
         <div style={{ flex: 1, overflowY: 'auto' }}>
           {loadError && <div style={{ ...errorBox, margin: '12px 16px' }}>{loadError}</div>}
@@ -530,24 +541,29 @@ export default function LocalUnions(): React.JSX.Element {
             <div style={{ fontSize: '15px', fontWeight: 700, color: '#0F172A', marginBottom: '20px' }}>
               {editingUnion ? `Edit Local ${editingUnion.local_number}` : 'New Local Union'}
             </div>
-            <div className="grid-form-2-1" style={{ marginBottom: '14px' }}>
+            <div className="grid-form-1-1-1" style={{ marginBottom: '16px' }}>
               <div>
                 <label style={labelStyle}>Local Number <span style={{ color: '#ef4444' }}>*</span></label>
-                <input type="number" style={inputStyle} value={unionForm.local_number} autoFocus onChange={(e) => setUnionForm({ ...unionForm, local_number: e.target.value })} placeholder="e.g. 11" min={1} />
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  style={inputStyle}
+                  value={unionForm.local_number}
+                  autoFocus
+                  onChange={(e) => setUnionForm({ ...unionForm, local_number: e.target.value.replace(/\D/g, '') })}
+                  placeholder="e.g. 11"
+                />
               </div>
-              <div>
-                <label style={labelStyle}>Jurisdiction</label>
-                <input style={inputStyle} value={unionForm.jurisdiction} onChange={(e) => setUnionForm({ ...unionForm, jurisdiction: e.target.value })} placeholder="e.g. Inside Wireman" />
-              </div>
-            </div>
-            <div className="grid-form-2-1" style={{ marginBottom: '16px' }}>
               <div>
                 <label style={labelStyle}>City</label>
                 <input style={inputStyle} value={unionForm.city} onChange={(e) => setUnionForm({ ...unionForm, city: e.target.value })} />
               </div>
               <div>
                 <label style={labelStyle}>State</label>
-                <input style={inputStyle} value={unionForm.state} onChange={(e) => setUnionForm({ ...unionForm, state: e.target.value })} maxLength={2} placeholder="CA" />
+                <select style={inputStyle} value={unionForm.state} onChange={(e) => setUnionForm({ ...unionForm, state: e.target.value })}>
+                  <option value="">— Select —</option>
+                  {US_STATES_50.map((s) => <option key={s.code} value={s.code}>{s.code} — {s.name}</option>)}
+                </select>
               </div>
             </div>
             {unionError && <div style={errorBox}>{unionError}</div>}
@@ -564,7 +580,6 @@ export default function LocalUnions(): React.JSX.Element {
               <div>
                 <h2 style={{ fontSize: '20px', fontWeight: 700, color: '#0F172A', margin: 0 }}>
                   Local {selectedUnion.local_number}
-                  {selectedUnion.jurisdiction && <span style={{ fontSize: '14px', color: '#64748B', fontWeight: 400, marginLeft: '10px' }}>· {selectedUnion.jurisdiction}</span>}
                 </h2>
                 {(selectedUnion.city || selectedUnion.state) && (
                   <p style={{ fontSize: '13px', color: '#64748B', margin: '6px 0 0' }}>{[selectedUnion.city, selectedUnion.state].filter(Boolean).join(', ')}</p>
@@ -590,16 +605,12 @@ export default function LocalUnions(): React.JSX.Element {
               {showPackageForm && (
                 <div style={{ background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: '8px', padding: '14px', marginBottom: '14px' }}>
                   <div style={{ fontSize: '13px', fontWeight: 600, color: '#0F172A', marginBottom: '12px' }}>
-                    {editingPackage ? `Edit ${editingPackage.classification}` : 'New Wage Package'}
+                    {editingPackage ? 'Edit Wage Package' : 'New Wage Package'}
                   </div>
-                  <div className="grid-form-1-1-1" style={{ marginBottom: '10px' }}>
-                    <div>
-                      <label style={labelStyle}>Classification <span style={{ color: '#ef4444' }}>*</span></label>
-                      <input style={inputStyle} value={packageForm.classification} autoFocus onChange={(e) => setPackageForm({ ...packageForm, classification: e.target.value })} placeholder="e.g. Journeyman" />
-                    </div>
+                  <div className="grid-2col" style={{ marginBottom: '10px' }}>
                     <div>
                       <label style={labelStyle}>Effective</label>
-                      <input type="date" style={inputStyle} value={packageForm.effective_date} onChange={(e) => setPackageForm({ ...packageForm, effective_date: e.target.value })} />
+                      <input type="date" style={inputStyle} value={packageForm.effective_date} autoFocus onChange={(e) => setPackageForm({ ...packageForm, effective_date: e.target.value })} />
                     </div>
                     <div>
                       <label style={labelStyle}>Expires</label>
@@ -662,7 +673,7 @@ export default function LocalUnions(): React.JSX.Element {
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px', gap: '12px', flexWrap: 'wrap' }}>
                   <div>
                     <span style={{ fontSize: '14px', fontWeight: 700, color: '#0F172A' }}>
-                      {selectedPackage.classification} — Components
+                      {selectedPackage.classification} Wage Package
                     </span>
                     {componentsLoading ? null : (
                       <span style={{ fontSize: '12px', color: '#64748B', marginLeft: '8px' }}>
@@ -682,17 +693,19 @@ export default function LocalUnions(): React.JSX.Element {
                     </div>
                     <div className="grid-form-1-1-1" style={{ marginBottom: '10px' }}>
                       <div>
-                        <label style={labelStyle}>Code <span style={{ color: '#ef4444' }}>*</span></label>
-                        <input style={inputStyle} value={componentForm.component_code} autoFocus onChange={(e) => setComponentForm({ ...componentForm, component_code: e.target.value })} placeholder="e.g. BW, HW, PEN" />
-                      </div>
-                      <div>
                         <label style={labelStyle}>Name <span style={{ color: '#ef4444' }}>*</span></label>
-                        <input style={inputStyle} value={componentForm.component_name} onChange={(e) => setComponentForm({ ...componentForm, component_name: e.target.value })} placeholder="e.g. Base Wage" />
+                        <input style={inputStyle} value={componentForm.component_name} autoFocus onChange={(e) => setComponentForm({ ...componentForm, component_name: e.target.value })} placeholder="e.g. Base Wage" />
                       </div>
                       <div>
                         <label style={labelStyle}>Category</label>
                         <select style={inputStyle} value={componentForm.category} onChange={(e) => setComponentForm({ ...componentForm, category: e.target.value as WageComponentCategory })}>
                           {CATEGORIES.map((c) => <option key={c} value={c}>{CATEGORY_LABEL[c]}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label style={labelStyle}>Unit</label>
+                        <select style={inputStyle} value={componentForm.unit} onChange={(e) => setComponentForm({ ...componentForm, unit: e.target.value as WageComponentUnit })}>
+                          {UNITS.map((u) => <option key={u} value={u}>{u}</option>)}
                         </select>
                       </div>
                     </div>
@@ -702,15 +715,9 @@ export default function LocalUnions(): React.JSX.Element {
                         <input type="number" step="0.0001" style={inputStyle} value={componentForm.amount} onChange={(e) => setComponentForm({ ...componentForm, amount: e.target.value })} />
                       </div>
                       <div>
-                        <label style={labelStyle}>Unit</label>
-                        <select style={inputStyle} value={componentForm.unit} onChange={(e) => setComponentForm({ ...componentForm, unit: e.target.value as WageComponentUnit })}>
-                          {UNITS.map((u) => <option key={u} value={u}>{u}</option>)}
-                        </select>
+                        <label style={labelStyle}>Notes</label>
+                        <input style={inputStyle} value={componentForm.notes} onChange={(e) => setComponentForm({ ...componentForm, notes: e.target.value })} />
                       </div>
-                    </div>
-                    <div style={{ marginBottom: '10px' }}>
-                      <label style={labelStyle}>Notes</label>
-                      <input style={inputStyle} value={componentForm.notes} onChange={(e) => setComponentForm({ ...componentForm, notes: e.target.value })} />
                     </div>
                     {componentError && <div style={errorBox}>{componentError}</div>}
                     <div style={{ display: 'flex', gap: '8px' }}>
@@ -732,7 +739,6 @@ export default function LocalUnions(): React.JSX.Element {
                     <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '500px' }}>
                       <thead>
                         <tr>
-                          <th style={thStyle} scope="col">Code</th>
                           <th style={thStyle} scope="col">Name</th>
                           <th style={thStyle} scope="col">Category</th>
                           <th style={{ ...thStyle, textAlign: 'right' }} scope="col">Amount</th>
@@ -745,13 +751,12 @@ export default function LocalUnions(): React.JSX.Element {
                           const cc = CATEGORY_COLORS[c.category]
                           return (
                             <tr key={c.id}>
-                              <td style={tdStyle}><span style={{ fontFamily: 'ui-monospace, SFMono-Regular, Consolas, monospace', fontWeight: 600 }}>{c.component_code}</span></td>
                               <td style={tdStyle}>{c.component_name}</td>
                               <td style={tdStyle}>
                                 <span style={{ fontSize: '11px', fontWeight: 600, padding: '2px 8px', borderRadius: '20px', background: cc.bg, color: cc.color }}>{CATEGORY_LABEL[c.category]}</span>
                               </td>
                               <td style={{ ...tdStyle, textAlign: 'right', fontWeight: 600 }}>
-                                {c.category === 'deduction' ? '−' : ''}{Number(c.amount).toFixed(4)}
+                                {Number(c.amount).toFixed(4)}
                               </td>
                               <td style={tdStyle}>{c.unit}</td>
                               <td style={{ ...tdStyle, textAlign: 'right' }}>
@@ -768,12 +773,12 @@ export default function LocalUnions(): React.JSX.Element {
                     {/* Totals — only meaningful for $/hr items */}
                     <div className="grid-stats" style={{ marginTop: '14px', padding: '12px 14px', background: '#F8FAFC', borderRadius: '8px' }}>
                       <Total label="Wages ($/hr)" value={componentTotals.wage} />
-                      <Total label="Benefits ($/hr)" value={componentTotals.benefit} />
-                      <Total label="Deductions ($/hr)" value={componentTotals.deduction} />
-                      <Total label="Gross ($/hr)" value={componentTotals.gross} bold />
+                      <Total label="Fringe Benefits ($/hr)" value={componentTotals.benefit} />
+                      <Total label="Industry Funds ($/hr)" value={componentTotals.industryFund} />
+                      <Total label="Total Package ($/hr)" value={componentTotals.gross} bold />
                     </div>
                     <div style={{ fontSize: '11px', color: '#94A3B8', marginTop: '8px' }}>
-                      Totals sum only $/hr components. % of gross and $/wk lines are listed but not totaled.
+                      Totals sum only $/hr components. % of gross lines are listed but not totaled.
                     </div>
                   </>
                 )}
@@ -791,7 +796,7 @@ export default function LocalUnions(): React.JSX.Element {
       <ConfirmDialog
         open={confirmDeleteUnion !== null}
         title="Delete local union?"
-        message={confirmDeleteUnion ? `Delete Local ${confirmDeleteUnion.local_number}? All of its wage packages and components will be deleted. Negotiations and grievances linked to this local will be left in place but their link will break. This cannot be undone.` : ''}
+        message={confirmDeleteUnion ? `Delete Local ${confirmDeleteUnion.local_number}? All of its wage packages and components will be deleted, along with any negotiations linked to this local (including their sessions, proposals, and documents). Grievances will remain but lose their link to this local. This cannot be undone.` : ''}
         confirmLabel="Delete"
         busy={deletingUnion}
         onConfirm={handleDeleteUnion}
@@ -811,12 +816,29 @@ export default function LocalUnions(): React.JSX.Element {
       <ConfirmDialog
         open={confirmDeleteComponent !== null}
         title="Delete component?"
-        message={confirmDeleteComponent ? `Delete ${confirmDeleteComponent.component_name} (${confirmDeleteComponent.component_code})? This cannot be undone.` : ''}
+        message={confirmDeleteComponent ? `Delete ${confirmDeleteComponent.component_name}? This cannot be undone.` : ''}
         confirmLabel="Delete"
         busy={deletingComponent}
         onConfirm={handleDeleteComponent}
         onCancel={() => setConfirmDeleteComponent(null)}
       />
+
+      {showImport && effectiveChapterId && (
+        <ImportLocalUnionsModal
+          chapterId={effectiveChapterId}
+          existingUnions={unions}
+          onClose={() => setShowImport(false)}
+          onImported={() => {
+            // Refresh the list; the modal closes itself on success and stays
+            // open (showing the error) after a partial failure.
+            setSelectedId(null)
+            setPackages([])
+            setSelectedPackageId(null)
+            setComponents([])
+            void loadUnions()
+          }}
+        />
+      )}
     </div>
   )
 }

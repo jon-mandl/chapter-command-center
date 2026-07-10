@@ -56,6 +56,8 @@ npx supabase db push
 | 20260702160000 | negotiation_closeout | Adds negotiation_cycles.settled_date and final_agreement_document_id for the Close Out flow |
 | 20260706090000 | negotiation_documents_admin_rls | Adds the missing is_admin() fallback to the negotiation_documents table and negotiation-documents storage policies (admins couldn't upload) |
 | 20260706150000 | drop_legacy_proposal_fields | Migrates current_language→current_text and proposed_change→notes, then drops current_language, proposed_change, sub_status from proposals |
+| 20260708090000 | chapter_delete_cascades | Makes pending_invites.chapter_id ON DELETE CASCADE — the last FK needed so an admin can delete a chapter and all its data (everything else already cascaded; user_settings goes SET NULL) |
+| 20260708091000 | wage_component_categories_units | Drops NOT NULL on wage_components.component_code; categories become wage/benefit/industry_fund ('deduction' retired); units narrowed to $/hr and % of gross ('$/wk' retired) |
 
 ---
 

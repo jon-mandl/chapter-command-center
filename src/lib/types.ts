@@ -266,13 +266,14 @@ export interface WagePackage {
   updated_at: string
 }
 
-export type WageComponentCategory = 'wage' | 'benefit' | 'deduction'
-export type WageComponentUnit = '$/hr' | '% of gross' | '$/wk'
+export type WageComponentCategory = 'wage' | 'benefit' | 'industry_fund'
+export type WageComponentUnit = '$/hr' | '% of gross'
 
 export interface WageComponent {
   id: ID
   wage_package_id: ID
-  component_code: string
+  // No longer collected in the UI; legacy rows may still carry a code.
+  component_code: string | null
   component_name: string
   category: WageComponentCategory
   amount: number

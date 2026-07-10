@@ -11,21 +11,14 @@ import {
   formatBytes,
   validateUpload
 } from '../lib/storage'
-import { inputStyle, labelStyle, btnPrimary, btnSecondary, btnDanger, card, errorBox, formatDate } from '../lib/ui'
+import {
+  inputStyle, labelStyle, btnPrimary, btnSecondary, btnDanger, card, errorBox, formatDate,
+  GRIEVANCE_STAGE_COLORS as STAGE_COLORS, GRIEVANCE_ACTIVE_STAGES as ACTIVE_STAGES
+} from '../lib/ui'
 import type { Grievance, GrievanceDocument, GrievanceStage, MemberCompany, LocalUnion, ID } from '../lib/types'
 
 const STAGES: GrievanceStage[] = ['Filed', 'LMC', 'CIR', 'Arbitration', 'Closed', 'Withdrawn']
 
-const STAGE_COLORS: Record<GrievanceStage, { bg: string; color: string; border: string }> = {
-  Filed:       { bg: '#fef2f2', color: '#dc2626', border: '#fecaca' },
-  LMC:         { bg: '#fff7ed', color: '#ea580c', border: '#fed7aa' },
-  CIR:         { bg: '#fefce8', color: '#ca8a04', border: '#fef08a' },
-  Arbitration: { bg: '#fefce8', color: '#a16207', border: '#fde68a' },
-  Closed:      { bg: '#F8FAFC', color: '#64748B', border: '#E2E8F0' },
-  Withdrawn:   { bg: '#F8FAFC', color: '#64748B', border: '#E2E8F0' }
-}
-
-const ACTIVE_STAGES: GrievanceStage[] = ['Filed', 'LMC', 'CIR', 'Arbitration']
 const TERMINAL_STAGES: GrievanceStage[] = ['Closed', 'Withdrawn']
 
 type GrievanceForm = {
