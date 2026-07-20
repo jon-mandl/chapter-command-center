@@ -6,6 +6,8 @@ import { describeError } from '../lib/errors'
 import ConfirmDialog from '../lib/ConfirmDialog'
 import ImportHoursModal from './ImportHoursModal'
 import { inputStyle, labelStyle, btnPrimary, btnSecondary, btnDanger, card, errorBox, thStyle, tdStyle, formatMoney } from '../lib/ui'
+import { buildExportBlob, EXCEL_NUM_FMT, type ExportCell } from '../lib/excelExport'
+import { downloadBlob } from '../lib/xlsx'
 import type { WorkforceHours, MemberCompany, LocalUnion, ID } from '../lib/types'
 
 const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
@@ -69,6 +71,7 @@ export default function MembersHours(): React.JSX.Element {
   const [confirmDelete, setConfirmDelete] = useState<WorkforceHours | null>(null)
   const [deleting, setDeleting] = useState(false)
   const [showImport, setShowImport] = useState(false)
+  const [exporting, setExporting] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -170,6 +173,37 @@ export default function MembersHours(): React.JSX.Element {
   const footerTotals = Array.from({ length: 12 }, (_, m) =>
     visiblePivot.reduce((sum, p) => sum + p.monthSums[m], 0))
   const footerGrandTotal = footerTotals.reduce((sum, t) => sum + t, 0)
+
+  // Downloads the selected year's pivot (all companies, not just the search
+  // matches) as an Excel workbook: one row per company, Jan-Dec + Total.
+  async function handleExport(): Promise<void> {
+    setExporting(true)
+    try {
+      const monthTotals = Array.from({ length: 12 }, (_, m) =>
+        pivot.reduce((sum, p) => sum + p.monthSums[m], 0))
+      const grandTotal = monthTotals.reduce((sum, t) => sum + t, 0)
+      const blob = await buildExportBlob([{
+        name: `Hours ${yearFilter}`,
+        columns: [
+          { header: 'Company', width: 32 },
+          ...MONTH_LABELS.map((m) => ({ header: m, width: 10, numFmt: EXCEL_NUM_FMT })),
+          { header: 'Total', width: 12, numFmt: EXCEL_NUM_FMT }
+        ],
+        rows: pivot.map((p): ExportCell[] => [
+          p.label,
+          ...p.monthSums.map((sum, m) => (p.monthEntries[m].length > 0 ? sum : null)),
+          p.total
+        ]),
+        totalsRow: ['All companies', ...monthTotals, grandTotal]
+      }])
+      downloadBlob(blob, `member-hours-${yearFilter}.xlsx`)
+      toast.success(`Exported ${pivot.length} compan${pivot.length === 1 ? 'y' : 'ies'} for ${yearFilter}.`)
+    } catch (err) {
+      toast.error(describeError(err, 'Could not export hours.'))
+    } finally {
+      setExporting(false)
+    }
+  }
 
   function startCreate(): void {
     setEditing(null)
@@ -298,6 +332,14 @@ export default function MembersHours(): React.JSX.Element {
         </div>
         {!showForm && (
           <div style={{ display: 'flex', gap: '8px' }}>
+            <button
+              style={{ ...btnSecondary, opacity: exporting || pivot.length === 0 ? 0.5 : 1 }}
+              disabled={exporting || pivot.length === 0}
+              title={pivot.length === 0 ? `No hours recorded for ${yearFilter}` : `Download ${yearFilter} hours as an Excel workbook`}
+              onClick={handleExport}
+            >
+              {exporting ? 'Exporting…' : 'Export Excel'}
+            </button>
             <button
               style={{ ...btnSecondary, opacity: effectiveChapterId ? 1 : 0.5 }}
               disabled={!effectiveChapterId}

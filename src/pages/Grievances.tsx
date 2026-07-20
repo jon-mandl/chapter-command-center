@@ -15,6 +15,8 @@ import {
   inputStyle, labelStyle, btnPrimary, btnSecondary, btnDanger, card, errorBox, formatDate,
   GRIEVANCE_STAGE_COLORS as STAGE_COLORS, GRIEVANCE_ACTIVE_STAGES as ACTIVE_STAGES
 } from '../lib/ui'
+import { buildExportBlob, type ExportCell } from '../lib/excelExport'
+import { downloadBlob } from '../lib/xlsx'
 import type { Grievance, GrievanceDocument, GrievanceStage, MemberCompany, LocalUnion, ID } from '../lib/types'
 
 const STAGES: GrievanceStage[] = ['Filed', 'LMC', 'CIR', 'Arbitration', 'Closed', 'Withdrawn']
@@ -87,6 +89,7 @@ export default function Grievances(): React.JSX.Element {
 
   const [confirmLockToggle, setConfirmLockToggle] = useState<Grievance | null>(null)
   const [togglingLock, setTogglingLock] = useState(false)
+  const [exporting, setExporting] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -140,6 +143,45 @@ export default function Grievances(): React.JSX.Element {
     })
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [grievances, stageFilter, search, companies])
+
+  // Downloads the currently filtered grievance list (stage filter + search)
+  // as an Excel workbook.
+  async function handleExport(): Promise<void> {
+    setExporting(true)
+    try {
+      const blob = await buildExportBlob([{
+        name: 'Grievances',
+        columns: [
+          { header: 'Number', width: 14 },
+          { header: 'Title', width: 32 },
+          { header: 'Employer', width: 28 },
+          { header: 'Local Union', width: 12 },
+          { header: 'Stage', width: 12 },
+          { header: 'Filed', width: 12 },
+          { header: 'Resolved', width: 12 },
+          { header: 'Description', width: 44 },
+          { header: 'Resolution', width: 44 }
+        ],
+        rows: filtered.map((g): ExportCell[] => [
+          g.grievance_number,
+          g.title,
+          g.employer_id ? companyName(g.employer_id) : g.employer_name,
+          g.local_union_id ? unionLabel(g.local_union_id) : null,
+          g.stage,
+          g.filed_date,
+          g.resolved_date,
+          g.description,
+          g.resolution
+        ])
+      }])
+      downloadBlob(blob, `grievances-${stageFilter}.xlsx`)
+      toast.success(`Exported ${filtered.length} grievance${filtered.length === 1 ? '' : 's'}.`)
+    } catch (err) {
+      toast.error(describeError(err, 'Could not export grievances.'))
+    } finally {
+      setExporting(false)
+    }
+  }
 
   function startCreate(): void {
     setMode('create')
@@ -333,7 +375,17 @@ export default function Grievances(): React.JSX.Element {
         <div style={{ padding: '20px 20px 12px', borderBottom: '1px solid #E2E8F0' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
             <span style={{ fontSize: '15px', fontWeight: 700, color: '#0F172A' }}>Grievances</span>
-            <button style={{ ...btnPrimary, fontSize: '12px', padding: '5px 12px' }} onClick={startCreate}>+ File</button>
+            <span style={{ display: 'flex', gap: '6px' }}>
+              <button
+                style={{ ...btnSecondary, fontSize: '12px', padding: '5px 12px', opacity: exporting || filtered.length === 0 ? 0.5 : 1 }}
+                disabled={exporting || filtered.length === 0}
+                title={filtered.length === 0 ? 'No grievances to export' : 'Download the filtered grievances as an Excel workbook'}
+                onClick={handleExport}
+              >
+                {exporting ? 'Exporting…' : 'Export'}
+              </button>
+              <button style={{ ...btnPrimary, fontSize: '12px', padding: '5px 12px' }} onClick={startCreate}>+ File</button>
+            </span>
           </div>
           <input
             style={inputStyle}

@@ -61,6 +61,20 @@ npx supabase db push
 
 ---
 
+## Edge Functions
+
+The project has one Edge Function, `invite-user`, whose source is
+version-controlled at `supabase/functions/invite-user/index.ts` (downloaded
+from the deployed version 5 on 2026-07-10 — the file matches what is live).
+Schema migrations do not cover Edge Functions; if the function is edited,
+redeploy it explicitly:
+
+```
+npx supabase functions deploy invite-user --project-ref yjwttrfpkrorzabcghru
+```
+
+---
+
 ## Baseline File Note
 
 `20260601000000_baseline_schema.sql` is a complete schema snapshot created for

@@ -7,6 +7,8 @@ import ConfirmDialog from '../lib/ConfirmDialog'
 import ImportDirectoryModal from './ImportDirectoryModal'
 import { inputStyle, labelStyle, btnPrimary, btnSecondary, btnDanger, card, errorBox } from '../lib/ui'
 import { DISCOUNT_TIER_LABEL } from '../lib/serviceCharge'
+import { buildExportBlob, type ExportCell } from '../lib/excelExport'
+import { downloadBlob } from '../lib/xlsx'
 import type { MemberCompany, CompanyStatus, DiscountTier, ID } from '../lib/types'
 
 // Most mail clients truncate very long mailto: URLs (Outlook around 2k chars).
@@ -96,6 +98,7 @@ export default function MembersDirectory(): React.JSX.Element {
 
   const [confirmDelete, setConfirmDelete] = useState<MemberCompany | null>(null)
   const [deleting, setDeleting] = useState(false)
+  const [exporting, setExporting] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -232,6 +235,49 @@ export default function MembersDirectory(): React.JSX.Element {
   ))
   const missingEmailCount = filtered.filter((c) => !c.contact_email?.trim()).length
 
+  // Downloads the currently filtered companies (search + status filter) as an
+  // Excel workbook with the same columns as the import template.
+  async function handleExport(): Promise<void> {
+    setExporting(true)
+    try {
+      const blob = await buildExportBlob([{
+        name: 'Companies',
+        columns: [
+          { header: 'Company Name', width: 32 },
+          { header: 'Contact Name', width: 20 },
+          { header: 'Contact Email', width: 26 },
+          { header: 'Contact Phone', width: 16 },
+          { header: 'Address', width: 28 },
+          { header: 'City', width: 18 },
+          { header: 'State', width: 8 },
+          { header: 'Zip', width: 10 },
+          { header: 'Status', width: 10 },
+          { header: 'Discount Tier', width: 20 },
+          { header: 'Notes', width: 36 }
+        ],
+        rows: filtered.map((c): ExportCell[] => [
+          c.company_name,
+          c.contact_name,
+          c.contact_email,
+          c.contact_phone,
+          c.address,
+          c.city,
+          c.state,
+          c.zip,
+          c.status,
+          DISCOUNT_TIER_LABEL[c.discount_tier],
+          c.notes
+        ])
+      }])
+      downloadBlob(blob, 'member-directory.xlsx')
+      toast.success(`Exported ${filtered.length} compan${filtered.length === 1 ? 'y' : 'ies'}.`)
+    } catch (err) {
+      toast.error(describeError(err, 'Could not export the directory.'))
+    } finally {
+      setExporting(false)
+    }
+  }
+
   function handleEmailFiltered(): void {
     if (filteredEmails.length === 0) return
     const url = 'mailto:?bcc=' + encodeURIComponent(filteredEmails.join(','))
@@ -300,6 +346,14 @@ export default function MembersDirectory(): React.JSX.Element {
                 Import
               </button>
             )}
+            <button
+              style={{ ...btnSecondary, fontSize: '12px', padding: '4px 10px', opacity: exporting || filtered.length === 0 ? 0.5 : 1 }}
+              disabled={exporting || filtered.length === 0}
+              title={filtered.length === 0 ? 'No companies to export' : 'Download the filtered companies as an Excel workbook'}
+              onClick={handleExport}
+            >
+              {exporting ? 'Exporting…' : 'Export Excel'}
+            </button>
             {missingEmailCount > 0 && (
               <span style={{ fontSize: '11px', color: '#94A3B8' }}>{missingEmailCount} without an email skipped</span>
             )}

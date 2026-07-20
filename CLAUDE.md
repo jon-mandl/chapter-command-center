@@ -66,6 +66,13 @@ Env vars live in `.env.local` (see `.env.example`): `VITE_SUPABASE_URL`,
 
 ## Testing / verification
 
-There are no automated tests yet. After changes: `npm run build` and
-`npm run lint` must pass, then verify in the running app (`npm run dev`).
+Unit tests (Vitest) cover the pure modules in `src/lib` — run `npm test`.
+When changing `serviceCharge.ts`, `hoursImport.ts`, `directoryImport.ts`, or
+`errors.ts`, update their co-located `*.test.ts` files too. After changes:
+`npm run build`, `npm run lint`, and `npm test` must pass (CI runs all three
+on every push/PR to `main`), then verify in the running app (`npm run dev`).
 Anything pushed to `main` goes to production — verify before pushing.
+
+The `invite-user` Edge Function source lives at
+`supabase/functions/invite-user/index.ts`. Editing it does NOT deploy it —
+redeploy explicitly with `npx supabase functions deploy invite-user`.

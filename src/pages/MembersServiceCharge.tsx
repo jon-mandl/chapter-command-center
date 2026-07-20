@@ -3,7 +3,9 @@ import { supabase, HOURS_QUERY_MAX } from '../lib/supabase'
 import { useUserSettings } from '../lib/useUserSettings'
 import { useToast } from '../lib/toast'
 import { describeError } from '../lib/errors'
-import { inputStyle, card, errorBox, thStyle, tdStyle, formatMoney, COLORS } from '../lib/ui'
+import { inputStyle, btnSecondary, card, errorBox, thStyle, tdStyle, formatMoney, COLORS } from '../lib/ui'
+import { buildExportBlob, EXCEL_NUM_FMT, EXCEL_CURRENCY_FMT, type ExportCell } from '../lib/excelExport'
+import { downloadBlob } from '../lib/xlsx'
 import {
   aggregateMonthly,
   computeCompanyCharge,
@@ -52,6 +54,7 @@ export default function MembersServiceCharge(): React.JSX.Element {
   const [toMonth, setToMonth] = useState(TODAY_MONTH)
   const [statusFilter, setStatusFilter] = useState<'all' | 'Active' | 'Inactive'>('Active')
   const [expandedIds, setExpandedIds] = useState<Set<ID>>(new Set())
+  const [exporting, setExporting] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -135,6 +138,88 @@ export default function MembersServiceCharge(): React.JSX.Element {
     [hours, year]
   )
 
+  // Downloads the current view (year, month range, status filter) as a
+  // two-sheet billing workbook: per-company summary + month-by-month detail.
+  async function handleExport(): Promise<void> {
+    setExporting(true)
+    try {
+      const summaryRows = rows.map(({ company, result }): ExportCell[] => [
+        company.company_name,
+        company.status,
+        DISCOUNT_TIER_LABEL[company.discount_tier],
+        result.totalHours,
+        result.totalGpep,
+        result.billableGpep,
+        result.baseCharge,
+        result.discountAmount,
+        result.netDue,
+        result.nonCompliant ? 'Yes' : ''
+      ])
+
+      const detailRows: ExportCell[][] = []
+      for (const { company, result } of rows) {
+        for (const m of result.months) {
+          if (!m.inRange || (m.hours === 0 && m.gpep === 0)) continue
+          detailRows.push([
+            company.company_name,
+            SHORT_MONTHS[m.month - 1],
+            m.hours,
+            m.cumulativeHoursAfter,
+            m.gpep,
+            m.monthCharge
+          ])
+        }
+      }
+
+      const blob = await buildExportBlob([
+        {
+          name: 'Summary',
+          columns: [
+            { header: 'Company', width: 32 },
+            { header: 'Status', width: 10 },
+            { header: 'Discount Tier', width: 20 },
+            { header: 'Hours', width: 12, numFmt: EXCEL_NUM_FMT },
+            { header: 'GPEP', width: 14, numFmt: EXCEL_CURRENCY_FMT },
+            { header: 'Billable GPEP', width: 14, numFmt: EXCEL_CURRENCY_FMT },
+            { header: 'Base Charge (0.2%)', width: 16, numFmt: EXCEL_CURRENCY_FMT },
+            { header: 'Discount', width: 12, numFmt: EXCEL_CURRENCY_FMT },
+            { header: 'Net Due', width: 14, numFmt: EXCEL_CURRENCY_FMT },
+            { header: 'Non-Compliant', width: 14 }
+          ],
+          rows: summaryRows,
+          totalsRow: [
+            'Total', '', '',
+            totals.hours,
+            rows.reduce((sum, r) => sum + r.result.totalGpep, 0),
+            totals.billableGpep,
+            rows.reduce((sum, r) => sum + r.result.baseCharge, 0),
+            rows.reduce((sum, r) => sum + r.result.discountAmount, 0),
+            totals.netDue,
+            totals.nonCompliant > 0 ? String(totals.nonCompliant) : ''
+          ]
+        },
+        {
+          name: 'Monthly Detail',
+          columns: [
+            { header: 'Company', width: 32 },
+            { header: 'Month', width: 8 },
+            { header: 'Hours', width: 12, numFmt: EXCEL_NUM_FMT },
+            { header: 'Cumulative Hours', width: 16, numFmt: EXCEL_NUM_FMT },
+            { header: 'GPEP', width: 14, numFmt: EXCEL_CURRENCY_FMT },
+            { header: 'Charge', width: 14, numFmt: EXCEL_CURRENCY_FMT }
+          ],
+          rows: detailRows
+        }
+      ])
+      downloadBlob(blob, `service-charge-${year}-${SHORT_MONTHS[fromMonth - 1]}-${SHORT_MONTHS[toMonth - 1]}.xlsx`)
+      toast.success(`Exported the service charge statement for ${rows.length} compan${rows.length === 1 ? 'y' : 'ies'}.`)
+    } catch (err) {
+      toast.error(describeError(err, 'Could not export the statement.'))
+    } finally {
+      setExporting(false)
+    }
+  }
+
   if (chapterLoading || loading) {
     return <div style={{ padding: '32px', fontSize: '13px', color: '#64748B' }}>Loading…</div>
   }
@@ -145,13 +230,23 @@ export default function MembersServiceCharge(): React.JSX.Element {
 
   return (
     <div className="page-content-wide" style={{ maxWidth: '1180px', margin: '0 auto' }}>
-      <div style={{ marginBottom: '20px' }}>
-        <h2 style={{ fontSize: '20px', fontWeight: 700, color: '#0F172A', margin: 0 }}>Service Charge</h2>
-        <p style={{ fontSize: '13px', color: '#64748B', margin: '6px 0 0' }}>
-          National Service Charge owed per company under the NECA bylaws — 0.2% of billable gross payroll (GPEP),
-          with annual hour tiers (first {TIER1_CAP.toLocaleString()} hrs at 100%, {TIER1_CAP.toLocaleString()}–{TIER2_CAP.toLocaleString()} at 75%,
-          above {TIER2_CAP.toLocaleString()} not billable) and multiple-membership discounts.
-        </p>
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', marginBottom: '20px' }}>
+        <div>
+          <h2 style={{ fontSize: '20px', fontWeight: 700, color: '#0F172A', margin: 0 }}>Service Charge</h2>
+          <p style={{ fontSize: '13px', color: '#64748B', margin: '6px 0 0' }}>
+            National Service Charge owed per company under the NECA bylaws — 0.2% of billable gross payroll (GPEP),
+            with annual hour tiers (first {TIER1_CAP.toLocaleString()} hrs at 100%, {TIER1_CAP.toLocaleString()}–{TIER2_CAP.toLocaleString()} at 75%,
+            above {TIER2_CAP.toLocaleString()} not billable) and multiple-membership discounts.
+          </p>
+        </div>
+        <button
+          style={{ ...btnSecondary, opacity: exporting || rows.length === 0 ? 0.5 : 1 }}
+          disabled={exporting || rows.length === 0}
+          title={rows.length === 0 ? 'No companies to export' : 'Download this statement as an Excel workbook'}
+          onClick={handleExport}
+        >
+          {exporting ? 'Exporting…' : 'Export Excel'}
+        </button>
       </div>
 
       {loadError && <div style={errorBox}>{loadError}</div>}

@@ -53,6 +53,16 @@ Function sends the email and applies the chapter/role on acceptance). New
 non-admin users see a "pending chapter assignment" screen until an admin
 assigns them a chapter, then complete a one-time profile form.
 
+The Edge Function's source is version-controlled at
+`supabase/functions/invite-user/index.ts`. It runs on Supabase with the
+service-role key and handles two actions: `invite` (create/re-invite a user
+and stage their chapter/role in `pending_invites`) and `delete` (remove an
+auth user; admin callers only). To redeploy after editing:
+
+```bash
+npx supabase functions deploy invite-user --project-ref <project-ref>
+```
+
 ## Available scripts
 
 | Command | What it does |
@@ -198,12 +208,13 @@ their `user_settings` row (editable under **Settings → Profile**).
   `grievance-documents`, and `negotiation-documents` — all chapter-scoped by
   RLS, capped at 50 MB per file, and downloaded via short-lived signed URLs.
 - The `deadlines` and `activity_log` tables exist but have no UI yet.
-- No automated tests and no CI pipeline yet (lint and build are run manually
-  and are currently clean — keep them that way).
+- Unit tests (Vitest) cover the pure calculation/import modules in `src/lib`
+  (`serviceCharge`, `hoursImport`, `directoryImport`, `errors`) — run with
+  `npm test`. GitHub Actions (`.github/workflows/ci.yml`) runs lint, build,
+  and tests on every push and PR to `main`. No component/E2E tests yet.
 
 ## Roadmap
 
-- CI (GitHub Actions: typecheck, lint, build on every push)
 - Custom SMTP for auth emails, Supabase Pro plan + backup/restore runbook,
   Terms of Service + Privacy Policy (pre-customer launch items)
 - Table sorting/pagination at scale; global search
